@@ -29,7 +29,7 @@ git clone <repo> /opt/county-router && cd /opt/county-router
 
 cp .env.production.example .env
 docker run --rm caddy:2 caddy hash-password --plaintext 'choose-a-password'
-nano .env      # SITE_ADDRESS, AUTH_USER, AUTH_HASH (keep the single quotes)
+nano .env      # DOMAIN, AUTH_USER, AUTH_HASH (keep the single quotes)
 
 data/build.sh                                   # map data, about 5 min
 docker compose build
@@ -37,8 +37,10 @@ docker compose run --rm --user "$(id -u):$(id -g)" cad-refresh   # CAD data, abo
 docker compose up -d
 ```
 
-Point the domain's DNS A record at the server before starting; Caddy gets a
-certificate on first request. Nominatim imports for about two minutes after the first
+Point DNS for both the domain and `www` at the server before starting; Caddy gets
+certificates on first start. Plain `http://` redirects to HTTPS (308) and `www` to
+`https://<domain>` (301). With Cloudflare, use "DNS only" until the first certificate is
+issued, then proxy with SSL mode "Full (strict)" if wanted. Nominatim imports for about two minutes after the first
 start; CAD lookups and routing work before it finishes.
 
 Instead of building data on the server, you can copy `data/out/` from a machine that
