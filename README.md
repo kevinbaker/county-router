@@ -48,7 +48,11 @@ cargo test
 For UI work, run `npm run dev` in `web/` instead of building: Vite serves the UI on
 http://127.0.0.1:5173 with live reload and proxies `/api` to the Rust API on :8000.
 
-Geocoding tries the Census Geocoder first (it knows rural house numbers that
-OpenStreetMap lacks), then Nominatim, which in most of the county only matches to
-the street. The prototype basemap uses openstreetmap.org tiles, which is fine for
+Stops are CAD property IDs or addresses. Each is matched to a Collin CAD parcel (by ID,
+or by the parcel's site address), then placed on the county 911 point for the building
+when there is one, otherwise on the lot edge facing the addressed street. Routing
+targets that street, so long rural lots aren't reached from their back road. Both
+CAD and county services are public ArcGIS layers, queried live and cached in memory.
+Addresses with no parcel fall back to the Census Geocoder, then Nominatim (street
+level only in most of the county). The prototype basemap uses openstreetmap.org tiles, which is fine for
 light development use only; replace it with the PMTiles build before real use.

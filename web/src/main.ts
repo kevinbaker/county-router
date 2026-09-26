@@ -13,10 +13,18 @@ type Confidence = "high" | "low" | "none";
 type GeocodeResult = {
   input: string;
   confidence: Confidence;
+  /** Where to show the stop. */
   location: LatLon | null;
+  /** Point on the addressed street to route to, when known. */
+  route_location: LatLon | null;
   matched: string | null;
-  source: string | null;
+  source: "cad" | "census" | "nominatim" | null;
   in_county: boolean;
+  prop_id: number | null;
+  owner: string | null;
+  method: "building" | "frontage" | "lot_centre" | null;
+  parcel: GeoJSON.Geometry | null;
+  note: string | null;
 };
 
 type Stop = GeocodeResult & { moved: boolean; marker?: maplibregl.Marker };
@@ -74,6 +82,10 @@ map.on("load", async () => {
   map.addLayer({ id: "county-fill", type: "fill", source: "county", paint: { "fill-color": "#2563eb", "fill-opacity": 0.04 } });
   map.addLayer({ id: "county-line", type: "line", source: "county", paint: { "line-color": "#2563eb", "line-width": 1.5, "line-dasharray": [3, 2] } });
 
+  map.addSource("parcels", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  map.addLayer({ id: "parcel-fill", type: "fill", source: "parcels", paint: { "fill-color": "#15803d", "fill-opacity": 0.1 } });
+  map.addLayer({ id: "parcel-line", type: "line", source: "parcels", paint: { "line-color": "#15803d", "line-width": 1.5 } });
+
   map.addSource("route", { type: "geojson", data: emptyLine() });
   map.addLayer({ id: "route-casing", type: "line", source: "route", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#ffffff", "line-width": 8 } });
   map.addLayer({ id: "route-line", type: "line", source: "route", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#1d4ed8", "line-width": 4.5 } });
@@ -84,6 +96,7 @@ map.on("click", (e) => {
   const s = stops[placing];
   s.location = { lat: e.lngLat.lat, lon: e.lngLat.lng };
   s.moved = true;
+  s.route_location = null;
   s.in_county = inCounty(s.location);
   placing = null;
   map.getCanvas().style.cursor = "";
@@ -96,25 +109,30 @@ function emptyLine(): GeoJSON.Feature<GeoJSON.LineString> {
 
 // ---------------------------------------------------------------- step 1: input
 
-/** One address per line; a single line holding several addresses is split after each ZIP code. */
-export function parseAddresses(text: string): string[] {
+/**
+ * One stop per line. A line of only numbers is a list of CAD property IDs; a line holding
+ * several addresses is split after each ZIP code.
+ */
+export function parseStops(text: string): string[] {
   return text
     .split(/\r?\n/)
-    .flatMap((line) => line.split(/(?<=\b\d{5}(?:-\d{4})?)\s*[,;]\s*/))
+    .flatMap((line) =>
+      /^[\s\d#,;]+$/.test(line) ? line.split(/[\s,;]+/) : line.split(/(?<=\b\d{5}(?:-\d{4})?)\s*[,;]\s*/),
+    )
     .map((s) => s.trim().replace(/^["']+|["']+$/g, "").trim())
     .filter((s) => s.length > 0);
 }
 
 $("find").addEventListener("click", async () => {
-  const addresses = parseAddresses($<HTMLTextAreaElement>("addresses").value);
+  const addresses = parseStops($<HTMLTextAreaElement>("addresses").value);
   const err = $("input-error");
   err.hidden = true;
-  if (addresses.length === 0) return showError(err, "Paste at least one address.");
+  if (addresses.length === 0) return showError(err, "Enter at least one property ID or address.");
   if (addresses.length > 250) return showError(err, `${addresses.length} stops; the limit is 250.`);
 
   const btn = $<HTMLButtonElement>("find");
   btn.disabled = true;
-  btn.textContent = `Finding ${addresses.length} addresses…`;
+  btn.textContent = `Finding ${addresses.length} stops…`;
   try {
     const results: GeocodeResult[] = await postJson("/api/geocode", { addresses });
     clearMarkers();
@@ -124,10 +142,10 @@ $("find").addEventListener("click", async () => {
     renderReview();
     fitToStops(stops);
   } catch (e) {
-    showError(err, `Could not look up addresses: ${(e as Error).message}`);
+    showError(err, `Could not look up stops: ${(e as Error).message}`);
   } finally {
     btn.disabled = false;
-    btn.textContent = "Find addresses";
+    btn.textContent = "Find stops";
   }
 });
 
@@ -141,8 +159,23 @@ function status(s: Stop): { cls: string; text: string } {
   if (!s.location) return { cls: "bad", text: "Not found" };
   if (!s.in_county) return { cls: "bad", text: "Outside county" };
   if (s.moved) return { cls: "moved", text: "Pin set by you" };
+  if (s.method === "building") return { cls: "ok", text: "Building" };
+  if (s.method === "frontage") return { cls: "ok", text: "Lot frontage" };
+  if (s.method === "lot_centre") return { cls: "warn", text: "Lot centre, check pin" };
   if (s.confidence === "low") return { cls: "warn", text: "Street only, check pin" };
-  return { cls: "ok", text: "Exact" };
+  return { cls: "ok", text: "Address" };
+}
+
+/** The stop's name: the CAD site address when there is a parcel, else what was typed. */
+function title(s: Stop): string {
+  return s.source === "cad" && s.matched ? s.matched : s.input;
+}
+
+/** Second line: property ID and owner for parcels, the matched address otherwise. */
+function detail(s: Stop): string {
+  if (s.prop_id !== null) return [`#${s.prop_id}`, s.owner].filter(Boolean).join(" · ");
+  if (s.note) return s.note;
+  return s.matched && !s.moved ? s.matched : "";
 }
 
 function renderReview() {
@@ -155,8 +188,8 @@ function renderReview() {
     li.innerHTML = `
       <span class="num">${i + 1}</span>
       <div class="body">
-        <div class="addr">${esc(s.input)}</div>
-        ${s.matched && !s.moved ? `<div class="matched">${esc(s.matched)}</div>` : ""}
+        <div class="addr">${esc(title(s))}</div>
+        ${detail(s) ? `<div class="matched">${esc(detail(s))}</div>` : ""}
         <span class="chip ${st.cls}">${st.text}</span>
         ${!usable(s) ? `<button class="link place" data-i="${i}">${placing === i ? "Click the map…" : "Place on map"}</button>` : ""}
       </div>`;
@@ -174,6 +207,13 @@ function renderReview() {
     placeMarker(s, String(i + 1), st.cls);
   });
 
+  (map.getSource("parcels") as GeoJSONSource | undefined)?.setData({
+    type: "FeatureCollection",
+    features: stops
+      .filter((s) => s.parcel)
+      .map((s) => ({ type: "Feature", properties: {}, geometry: s.parcel! })),
+  });
+
   const ok = stops.filter(usable).length;
   const check = stops.filter((s) => usable(s) && s.confidence === "low" && !s.moved).length;
   $("review-summary").textContent =
@@ -183,7 +223,7 @@ function renderReview() {
   const sel = $<HTMLSelectElement>("start");
   const prev = sel.value;
   sel.innerHTML = stops
-    .map((s, i) => (usable(s) ? `<option value="${i}">${i + 1}. ${esc(s.input)}</option>` : ""))
+    .map((s, i) => (usable(s) ? `<option value="${i}">${i + 1}. ${esc(title(s))}</option>` : ""))
     .join("");
   if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
   $<HTMLButtonElement>("solve").disabled = ok < 2;
@@ -204,6 +244,7 @@ function placeMarker(s: Stop, label: string, cls: string) {
       const p = s.marker!.getLngLat();
       s.location = { lat: p.lat, lon: p.lng };
       s.moved = true;
+      s.route_location = null;
       s.in_county = inCounty(s.location);
       if (plan) {
         clearRoute();
@@ -236,8 +277,8 @@ $("solve").addEventListener("click", async () => {
   btn.textContent = "Planning…";
   try {
     const result: SolveResponse = await postJson("/api/solve", {
-      start: start.location,
-      stops: others.map((s) => s.location),
+      start: routePoint(start),
+      stops: others.map(routePoint),
       round_trip: roundTrip,
       dwell_minutes: dwellMin,
     });
@@ -251,6 +292,11 @@ $("solve").addEventListener("click", async () => {
   }
 });
 
+/** Route to the addressed street when known, so a long lot isn't reached from its back road. */
+function routePoint(s: Stop): LatLon {
+  return s.route_location ?? s.location!;
+}
+
 function renderPlan() {
   if (!plan) return;
   const { start, ordered, roundTrip, dwellMin, result } = plan;
@@ -261,14 +307,14 @@ function renderPlan() {
     <div><strong>${hm(result.total_drive_s)}</strong><span>driving</span></div>
     <div><strong>${hm(result.total_s)}</strong><span>with ${dwellMin} min stops</span></div>`;
 
-  const rows: string[] = [`<li class="leg-start"><span class="num s">S</span><div class="body"><div class="addr">${esc(start.input)}</div><span class="muted">Start</span></div></li>`];
+  const rows: string[] = [`<li class="leg-start"><span class="num s">S</span><div class="body"><div class="addr">${esc(title(start))}</div><span class="muted">Start${start.prop_id !== null ? ` · #${start.prop_id}` : ""}</span></div></li>`];
   let elapsed = 0;
   ordered.forEach((s, k) => {
     const leg = result.legs[k];
     elapsed += leg.duration_s;
     rows.push(`<li><span class="num">${k + 1}</span><div class="body">
-      <div class="addr">${esc(s.input)}</div>
-      <span class="muted">${miles(leg.distance_m)} mi · ${mins(leg.duration_s)} · arrive +${hm(elapsed)}</span></div></li>`);
+      <div class="addr">${esc(title(s))}</div>
+      <span class="muted">${s.prop_id !== null ? `#${s.prop_id} · ` : ""}${miles(leg.distance_m)} mi · ${mins(leg.duration_s)} · arrive +${hm(elapsed)}</span></div></li>`);
     elapsed += dwellMin * 60;
   });
   if (roundTrip) {
@@ -321,8 +367,8 @@ function routeStops(p: Plan): Stop[] {
  */
 function googlePlace(s: Stop): string {
   if (s.moved || !s.location) return `${s.location!.lat.toFixed(6)},${s.location!.lon.toFixed(6)}`;
-  // Census returns a cleaned-up form ("100 N 4TH ST, PRINCETON, TX, 75407").
-  return s.source === "census" && s.matched ? s.matched : s.input;
+  // CAD and Census return a cleaned-up form ("100 N FOURTH ST, PRINCETON, TX 75407").
+  return (s.source === "cad" || s.source === "census") && s.matched ? s.matched : s.input;
 }
 
 /** Google Maps directions take an origin, a destination and at most 9 waypoints per link. */
@@ -350,7 +396,7 @@ function renderExports() {
 $("gpx").addEventListener("click", () => {
   if (!plan) return;
   const wpts = [plan.start, ...plan.ordered]
-    .map((s, k) => `  <wpt lat="${s.location!.lat}" lon="${s.location!.lon}"><name>${k === 0 ? "Start" : k}. ${xml(s.input)}</name></wpt>`)
+    .map((s, k) => `  <wpt lat="${s.location!.lat}" lon="${s.location!.lon}"><name>${k === 0 ? "Start" : k}. ${xml(title(s))}${s.prop_id !== null ? ` (#${s.prop_id})` : ""}</name></wpt>`)
     .join("\n");
   const trk = plan.result.geometry.coordinates.map(([lon, lat]) => `<trkpt lat="${lat}" lon="${lon}"/>`).join("");
   const gpx = `<?xml version="1.0" encoding="UTF-8"?>

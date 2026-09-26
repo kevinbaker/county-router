@@ -1,15 +1,26 @@
-//! Address to coordinates.
+//! Stop lookup: a CAD property ID or a typed address to a map point and a route point.
 //!
-//! Census Geocoder first: it matches rural house numbers (FM roads, state highways) that
-//! OpenStreetMap lacks. Nominatim second: it finds landmarks and streets, but in most of
-//! the county only to street level, so those matches are flagged for the user to confirm.
+//! Order: the CAD parcel (by property ID, or by matching the typed address to a parcel's
+//! site address); then the Census Geocoder, which knows rural house numbers that
+//! OpenStreetMap lacks; then Nominatim, which in most of the county matches only to the
+//! street, so those stops are flagged for the user to check.
 
-use std::{collections::HashMap, sync::Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use county_core::{Boundary, LatLon};
 use futures::{StreamExt, stream};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tracing::warn;
+
+use crate::{
+    access::{self, Method},
+    cad::{Cad, Parcel},
+    routing::Router,
+};
 
 const CENSUS_URL: &str = "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress";
 const CONCURRENCY: usize = 6;
@@ -17,9 +28,9 @@ const CONCURRENCY: usize = 6;
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Confidence {
-    /// Matched to a house number.
+    /// Matched to a house or lot.
     High,
-    /// Matched to a street or place only; the user should check the pin.
+    /// Matched to a street, place or lot centre only; the user should check the pin.
     Low,
     /// Not found.
     None,
@@ -29,69 +40,179 @@ pub enum Confidence {
 pub struct GeocodeResult {
     pub input: String,
     pub confidence: Confidence,
+    /// Where to show the stop.
     pub location: Option<LatLon>,
+    /// Point on the addressed street to route to, when known.
+    pub route_location: Option<LatLon>,
     pub matched: Option<String>,
     pub source: Option<&'static str>,
     pub in_county: bool,
+    pub prop_id: Option<i64>,
+    pub owner: Option<String>,
+    /// How the point was placed on a CAD parcel.
+    pub method: Option<Method>,
+    /// The lot outline as a GeoJSON geometry.
+    pub parcel: Option<Value>,
+    /// Why nothing was found, when known.
+    pub note: Option<String>,
+}
+
+impl GeocodeResult {
+    fn not_found(input: &str, note: Option<String>) -> Self {
+        Self {
+            input: input.to_string(),
+            confidence: Confidence::None,
+            location: None,
+            route_location: None,
+            matched: None,
+            source: None,
+            in_county: false,
+            prop_id: None,
+            owner: None,
+            method: None,
+            parcel: None,
+            note,
+        }
+    }
 }
 
 pub struct Geocoder {
     http: reqwest::Client,
     nominatim_url: String,
     boundary: Boundary,
+    cad: Cad,
+    router: Arc<Router>,
     cache: Mutex<HashMap<String, GeocodeResult>>,
 }
 
 impl Geocoder {
-    pub fn new(http: reqwest::Client, nominatim_url: String, boundary: Boundary) -> Self {
+    pub fn new(
+        http: reqwest::Client,
+        nominatim_url: String,
+        boundary: Boundary,
+        router: Arc<Router>,
+    ) -> Self {
         Self {
+            cad: Cad::new(http.clone()),
             http,
             nominatim_url,
             boundary,
+            router,
             cache: Mutex::new(HashMap::new()),
         }
     }
 
-    /// Geocodes addresses in order, a few at a time.
-    pub async fn geocode_all(&self, addresses: &[String]) -> Vec<GeocodeResult> {
+    /// Looks up stops in order, a few at a time. Property IDs are fetched from CAD in
+    /// batches first.
+    pub async fn geocode_all(&self, inputs: &[String]) -> Vec<GeocodeResult> {
+        let ids: Vec<i64> = inputs.iter().filter_map(|i| property_id(i)).collect();
+        let parcels = if ids.is_empty() {
+            Some(HashMap::new())
+        } else {
+            match self.cad.by_ids(&ids).await {
+                Ok(found) => Some(found),
+                Err(err) => {
+                    warn!("CAD lookup by property ID: {err:#}");
+                    None
+                }
+            }
+        };
+        let parcels = &parcels;
         // Owned strings: a stream over borrowed items trips axum's `Send` handler bound.
-        stream::iter(addresses.to_vec())
-            .map(|a| async move { self.geocode(&a).await })
+        stream::iter(inputs.to_vec())
+            .map(|q| async move { self.geocode(&q, parcels.as_ref()).await })
             .buffered(CONCURRENCY)
             .collect()
             .await
     }
 
-    pub async fn geocode(&self, input: &str) -> GeocodeResult {
+    /// `parcels` holds the prefetched property-ID lookups; `None` if CAD was unreachable.
+    async fn geocode(
+        &self,
+        input: &str,
+        parcels: Option<&HashMap<i64, Arc<Parcel>>>,
+    ) -> GeocodeResult {
         let key = normalize(input);
         if let Some(hit) = self.cache.lock().unwrap().get(&key) {
             return hit.clone();
         }
 
+        let result = if let Some(id) = property_id(input) {
+            match parcels {
+                Some(found) => match found.get(&id) {
+                    Some(p) => self.locate_parcel(input, p).await,
+                    None => GeocodeResult::not_found(
+                        input,
+                        Some(format!("No CAD parcel with property ID {id}")),
+                    ),
+                },
+                // Not cached: CAD may be back on the next try.
+                None => {
+                    return GeocodeResult::not_found(
+                        input,
+                        Some("CAD parcel service unavailable".into()),
+                    );
+                }
+            }
+        } else {
+            let parcel = match self.cad.by_address(input).await {
+                Ok(p) => p,
+                Err(err) => {
+                    warn!("CAD lookup by address: {err:#}");
+                    None
+                }
+            };
+            match parcel {
+                Some(p) => self.locate_parcel(input, &p).await,
+                None => self.street_geocode(input).await,
+            }
+        };
+        self.cache.lock().unwrap().insert(key, result.clone());
+        result
+    }
+
+    async fn locate_parcel(&self, input: &str, parcel: &Parcel) -> GeocodeResult {
+        let building = self.cad.building_point(parcel).await;
+        let Some(spot) = access::locate(&self.router, parcel, building).await else {
+            return GeocodeResult::not_found(input, Some("CAD parcel has no shape".into()));
+        };
+        GeocodeResult {
+            input: input.to_string(),
+            confidence: if spot.method == Method::LotCentre {
+                Confidence::Low
+            } else {
+                Confidence::High
+            },
+            location: Some(spot.display),
+            route_location: spot.route,
+            matched: Some(parcel.situs.clone()),
+            source: Some("cad"),
+            in_county: self.boundary.contains(spot.display),
+            prop_id: Some(parcel.prop_id),
+            owner: parcel.owner.clone(),
+            method: Some(spot.method),
+            parcel: Some(parcel.geojson.clone()),
+            note: None,
+        }
+    }
+
+    /// Addresses with no CAD parcel: Census, then Nominatim.
+    async fn street_geocode(&self, input: &str) -> GeocodeResult {
         let found = match self.census(input).await {
             Some(m) => Some(m),
             None => self.nominatim(input).await,
         };
-        let result = match found {
+        match found {
             Some((location, matched, source, confidence)) => GeocodeResult {
-                input: input.to_string(),
                 confidence,
                 location: Some(location),
                 matched: Some(matched),
                 source: Some(source),
                 in_county: self.boundary.contains(location),
+                ..GeocodeResult::not_found(input, None)
             },
-            None => GeocodeResult {
-                input: input.to_string(),
-                confidence: Confidence::None,
-                location: None,
-                matched: None,
-                source: None,
-                in_county: false,
-            },
-        };
-        self.cache.lock().unwrap().insert(key, result.clone());
-        result
+            None => GeocodeResult::not_found(input, None),
+        }
     }
 
     async fn census(&self, input: &str) -> Option<(LatLon, String, &'static str, Confidence)> {
@@ -157,6 +278,15 @@ impl Geocoder {
     }
 }
 
+/// A CAD property ID: digits only, optionally written with a leading `#`.
+fn property_id(input: &str) -> Option<i64> {
+    let id = input.trim().trim_start_matches('#');
+    if id.is_empty() || id.len() > 9 || !id.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    id.parse().ok()
+}
+
 /// Cache key: case and spacing don't change the answer.
 fn normalize(input: &str) -> String {
     input
@@ -207,6 +337,15 @@ struct NominatimAddress {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recognizes_property_ids() {
+        assert_eq!(property_id("1000001"), Some(1000001));
+        assert_eq!(property_id(" #1000002 "), Some(1000002));
+        assert_eq!(property_id("100 N FOURTH ST"), None);
+        assert_eq!(property_id("75407"), Some(75407));
+        assert_eq!(property_id(""), None);
+    }
 
     #[test]
     fn normalize_ignores_case_and_spacing() {

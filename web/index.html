@@ -15,13 +15,14 @@
 
         <section id="step-input">
           <label for="addresses">Stops</label>
+          <p class="hint">CAD property IDs or addresses, one per line. A list of IDs can also be separated by commas or spaces.</p>
           <textarea
             id="addresses"
             rows="8"
             spellcheck="false"
-            placeholder="One address per line, or paste a comma-separated list.&#10;1500 Parker Rd, Wylie, TX 75098"
+            placeholder="1000001&#10;1000002&#10;1500 Parker Rd, Wylie, TX 75098"
           ></textarea>
-          <button id="find" class="primary">Find addresses</button>
+          <button id="find" class="primary">Find stops</button>
           <p id="input-error" class="error" hidden></p>
         </section>
 
@@ -30,7 +31,7 @@
             <h2>Check stops</h2>
             <span id="review-summary" class="muted"></span>
           </div>
-          <p class="hint">Drag any pin to correct it. Stops marked “not found” are skipped until you place them.</p>
+          <p class="hint">Drag any pin to correct it. Green outlines are the CAD parcels. Stops marked “not found” are skipped until you place them.</p>
           <ol id="stop-list" class="stops"></ol>
 
           <div class="options">

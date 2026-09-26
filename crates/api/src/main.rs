@@ -1,7 +1,10 @@
 //! HTTP API for the Collin County route planner.
 
+mod access;
+mod cad;
 mod geocode;
 mod routing;
+mod street;
 
 use std::{sync::Arc, time::Duration};
 
@@ -53,7 +56,7 @@ struct AppState {
     config: Config,
     http: reqwest::Client,
     geocoder: Geocoder,
-    router: routing::Router,
+    router: Arc<routing::Router>,
     /// The county outline as loaded, for drawing on the map.
     boundary_geojson: String,
 }
@@ -77,13 +80,19 @@ async fn main() -> Result<()> {
         .build()?;
     let bind = config.bind.clone();
     let web_dir = config.web_dir.clone();
+    let router = Arc::new(routing::Router::new(
+        http.clone(),
+        config.osrm_url.clone(),
+        config.vroom_url.clone(),
+    ));
     let state = Arc::new(AppState {
-        geocoder: Geocoder::new(http.clone(), config.nominatim_url.clone(), boundary),
-        router: routing::Router::new(
+        geocoder: Geocoder::new(
             http.clone(),
-            config.osrm_url.clone(),
-            config.vroom_url.clone(),
+            config.nominatim_url.clone(),
+            boundary,
+            router.clone(),
         ),
+        router,
         config,
         http,
         boundary_geojson,

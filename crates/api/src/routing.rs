@@ -173,6 +173,48 @@ impl Router {
             geometry: route.geometry,
         })
     }
+
+    /// The `count` nearest road segments to `at`, nearest first, with their names.
+    pub async fn nearest(&self, at: LatLon, count: u32) -> Result<Vec<Snap>> {
+        let url = format!(
+            "{}/nearest/v1/driving/{:.6},{:.6}?number={count}",
+            self.osrm_url, at.lon, at.lat
+        );
+        let resp: OsrmNearestResponse = self
+            .http
+            .get(url)
+            .send()
+            .await
+            .context("calling OSRM nearest")?
+            .json()
+            .await
+            .context("reading OSRM nearest")?;
+        if resp.code != "Ok" {
+            bail!("OSRM {}: {}", resp.code, resp.message.unwrap_or_default());
+        }
+        Ok(resp
+            .waypoints
+            .into_iter()
+            .map(|w| Snap {
+                location: LatLon {
+                    lon: w.location[0],
+                    lat: w.location[1],
+                },
+                name: w.name,
+                distance_m: w.distance,
+            })
+            .collect())
+    }
+}
+
+/// A point snapped onto a road.
+#[derive(Debug, Clone)]
+pub struct Snap {
+    pub location: LatLon,
+    /// Road name; empty for unnamed roads such as driveways.
+    pub name: String,
+    /// Distance from the query point to the road, in metres.
+    pub distance_m: f64,
 }
 
 struct Route {
@@ -225,4 +267,20 @@ struct OsrmRoute {
 struct OsrmLeg {
     distance: f64,
     duration: f64,
+}
+
+#[derive(Deserialize)]
+struct OsrmNearestResponse {
+    code: String,
+    message: Option<String>,
+    #[serde(default)]
+    waypoints: Vec<OsrmWaypoint>,
+}
+
+#[derive(Deserialize)]
+struct OsrmWaypoint {
+    location: [f64; 2],
+    #[serde(default)]
+    name: String,
+    distance: f64,
 }

@@ -345,6 +345,8 @@ dependencies = [
  "county-core",
  "dotenvy",
  "futures",
+ "geo",
+ "geojson",
  "reqwest",
  "serde",
  "serde_json",
