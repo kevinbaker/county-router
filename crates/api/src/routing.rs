@@ -12,6 +12,10 @@ pub struct SolveRequest {
     /// Return to the start after the last stop.
     #[serde(default = "yes")]
     pub round_trip: bool,
+    /// Finish here (a stop the user picked) when not a round trip; `None` ends the route
+    /// wherever is shortest.
+    #[serde(default)]
+    pub end: Option<LatLon>,
     /// Time spent at each stop.
     #[serde(default)]
     pub dwell_minutes: f64,
@@ -25,7 +29,8 @@ fn yes() -> bool {
 pub struct SolveResponse {
     /// Indexes into the request's `stops`, in driving order.
     pub order: Vec<usize>,
-    /// One leg per drive: start to first stop, between stops, and back if round trip.
+    /// One leg per drive: start to first stop, between stops, then back to the start or
+    /// on to the chosen end, if any.
     pub legs: Vec<Leg>,
     pub total_distance_m: f64,
     pub total_drive_s: f64,
@@ -59,23 +64,28 @@ impl Router {
     }
 
     pub async fn solve(&self, req: &SolveRequest) -> Result<SolveResponse> {
-        if req.stops.is_empty() {
+        let end = self.finish(req);
+        if req.stops.is_empty() && end.is_none() {
             bail!("no stops to route");
         }
         let dwell_s = (req.dwell_minutes * 60.0).round().max(0.0) as u64;
-        let (order, unassigned) = self.order(req, dwell_s).await?;
+        let (order, unassigned) = if req.stops.is_empty() {
+            (Vec::new(), Vec::new())
+        } else {
+            self.order(req, dwell_s).await?
+        };
 
         let mut waypoints = vec![req.start];
         waypoints.extend(order.iter().map(|&i| req.stops[i]));
-        if req.round_trip {
-            waypoints.push(req.start);
-        }
+        waypoints.extend(end);
+        // A chosen end is a stop too, so it gets the dwell time; the start does not.
+        let dwelt = order.len() + usize::from(!req.round_trip && end.is_some());
         let route = self.route(&waypoints).await?;
 
         let total_drive_s: f64 = route.legs.iter().map(|l| l.duration_s).sum();
         Ok(SolveResponse {
             total_distance_m: route.legs.iter().map(|l| l.distance_m).sum(),
-            total_s: total_drive_s + (dwell_s * order.len() as u64) as f64,
+            total_s: total_drive_s + (dwell_s * dwelt as u64) as f64,
             total_drive_s,
             order,
             unassigned,
@@ -84,12 +94,22 @@ impl Router {
         })
     }
 
+    /// Where the route must finish, if anywhere: the start for a round trip, else the
+    /// chosen end.
+    fn finish(&self, req: &SolveRequest) -> Option<LatLon> {
+        if req.round_trip {
+            Some(req.start)
+        } else {
+            req.end
+        }
+    }
+
     /// Asks VROOM for the fastest stop order. VROOM gets travel times from OSRM itself.
     async fn order(&self, req: &SolveRequest, dwell_s: u64) -> Result<(Vec<usize>, Vec<usize>)> {
         let start = [req.start.lon, req.start.lat];
         let mut vehicle = json!({ "id": 0, "profile": "car", "start": start });
-        if req.round_trip {
-            vehicle["end"] = json!(start);
+        if let Some(end) = self.finish(req) {
+            vehicle["end"] = json!([end.lon, end.lat]);
         }
         let jobs: Vec<_> = req
             .stops

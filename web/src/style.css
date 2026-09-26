@@ -32,15 +32,41 @@ body { margin: 0; }
   padding: 20px 20px 32px;
 }
 
-#map { height: 100%; }
+.map-wrap { position: relative; height: 100%; min-height: 0; }
+#map { position: absolute; inset: 0; }
 
+.map-fit {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--accent);
+  border: 0;
+  color: #fff;
+  font-weight: 600;
+  padding: 10px 16px;
+  border-radius: 999px;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.3);
+}
+.map-fit:hover { filter: brightness(1.1); }
+
+header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 header h1 { font-size: 20px; margin: 0; }
+.start-over { padding: 6px 12px; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.start-over.confirm { background: var(--bad); border-color: var(--bad); color: #fff; }
 .sub { margin: 2px 0 20px; color: var(--muted); }
 h2 { font-size: 15px; margin: 0; }
 
 section { display: flex; flex-direction: column; gap: 12px; }
 label { font-weight: 600; display: flex; flex-direction: column; gap: 6px; }
 label.check { flex-direction: row; align-items: center; font-weight: 500; }
+fieldset.finish { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+fieldset.finish legend { font-weight: 600; padding: 0; margin-bottom: 6px; }
+label.check { gap: 8px; }
+label.end-at select { flex: 1; min-width: 0; padding: 5px 8px; }
 
 textarea, select, input[type="number"] {
   font: inherit;
@@ -66,6 +92,7 @@ button, a.button {
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 button:disabled { opacity: 0.55; cursor: default; }
 button.link { border: 0; padding: 0; background: none; color: var(--accent); font-weight: 500; }
+button.example { align-self: flex-start; text-align: left; font-size: 13px; }
 
 .section-head { display: flex; justify-content: space-between; align-items: baseline; }
 .muted, .hint { color: var(--muted); }
@@ -83,8 +110,21 @@ ol.stops li, ol.route li {
   cursor: pointer;
 }
 ol.stops li.placing { background: #eef2ff; }
+ol.route li.selected, ol.stops li.selected { background: #eef2ff; box-shadow: inset 3px 0 0 var(--accent); }
 .body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .addr { font-weight: 500; overflow-wrap: anywhere; }
+.prop-id {
+  margin-left: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 5px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 .matched { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 
 .num {
@@ -133,9 +173,38 @@ li.moved .num { background: #ede9fe; color: var(--moved); }
 .pin.moved { background: var(--moved); }
 .pin.start { background: var(--text); }
 .pin.dim { opacity: 0.35; }
+.pin.selected {
+  width: 34px;
+  height: 34px;
+  font-size: 14px;
+  z-index: 5;
+  box-shadow: 0 0 0 5px rgb(29 78 216 / 0.35), 0 1px 6px rgb(0 0 0 / 0.4);
+}
+
+/* Printable route sheet: built on demand, shown only when printing. */
+#print-sheet { display: none; }
 
 @media (max-width: 760px) {
   .app { grid-template-columns: 1fr; grid-template-rows: 45dvh auto; height: auto; }
-  #map { grid-row: 1; height: 45dvh; }
+  .map-wrap { grid-row: 1; height: 45dvh; }
   .panel { grid-row: 2; border-right: 0; padding: 16px; }
+}
+
+@media print {
+  @page { margin: 12mm; }
+  :root { background: #fff; }
+  .app { display: none !important; }
+  #print-sheet { display: block; color: #000; font-size: 10.5pt; }
+  #print-sheet h1 { font-size: 16pt; margin: 0 0 2pt; }
+  #print-sheet .meta { color: #444; margin-bottom: 8pt; }
+  #print-sheet .totals-line { font-weight: 600; margin-bottom: 8pt; }
+  #print-sheet img { width: 100%; max-height: 105mm; object-fit: contain; border: 1px solid #ccc; margin-bottom: 8pt; }
+  #print-sheet table { width: 100%; border-collapse: collapse; }
+  #print-sheet th, #print-sheet td { border-bottom: 1px solid #bbb; padding: 4pt 5pt; text-align: left; vertical-align: top; }
+  #print-sheet th { font-size: 9pt; text-transform: uppercase; letter-spacing: 0.03em; color: #333; border-bottom: 1.5px solid #000; }
+  #print-sheet tr { break-inside: avoid; }
+  #print-sheet td.seq { width: 5%; font-weight: 700; }
+  #print-sheet td.id, #print-sheet td.leg, #print-sheet td.arrive { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  #print-sheet td.done { width: 8%; }
+  #print-sheet .box { display: inline-block; width: 11pt; height: 11pt; border: 1.2px solid #000; }
 }

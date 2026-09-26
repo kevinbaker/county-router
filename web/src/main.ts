@@ -38,13 +38,40 @@ type SolveResponse = {
   geometry: GeoJSON.LineString;
 };
 
-type Plan = { start: Stop; ordered: Stop[]; roundTrip: boolean; dwellMin: number; result: SolveResponse };
+/** One row of the route: a stop in visit order, with the drive that reaches it. */
+type Visit = {
+  stop: Stop;
+  label: string;
+  name: string;
+  leg: { distance_m: number; duration_s: number } | null;
+  /** Seconds from departure to arrival. */
+  arrive_s: number | null;
+  /** The drive back to the start at the end of a round trip. */
+  return: boolean;
+};
+
+/** How the route finishes: back at the start, at a chosen stop, or wherever is shortest. */
+type Finish = "start" | "end" | "open";
+
+type Plan = {
+  start: Stop;
+  ordered: Stop[];
+  finish: Finish;
+  /** The chosen last stop when `finish` is "end". */
+  end: Stop | null;
+  dwellMin: number;
+  result: SolveResponse;
+};
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 let stops: Stop[] = [];
 let placing: number | null = null;
 let plan: Plan | null = null;
+/** Route-page rows in visit order; list items point into this by index. */
+let visits: Visit[] = [];
+/** The stop highlighted in the list and on the map. */
+let current: Stop | null = null;
 let county: GeoJSON.Polygon[] = [];
 
 // ---------------------------------------------------------------- map
@@ -122,6 +149,19 @@ export function parseStops(text: string): string[] {
     .filter((s) => s.length > 0);
 }
 
+/** Collin CAD office (by property ID), McKinney City Hall and the county courthouse. */
+const EXAMPLE_STOPS = [
+  "2625294",
+  "401 E Virginia St, McKinney, TX 75069",
+  "2100 Bloomdale Rd, McKinney, TX 75071",
+];
+
+$("example").addEventListener("click", () => {
+  const box = $<HTMLTextAreaElement>("addresses");
+  box.value = EXAMPLE_STOPS.join("\n");
+  box.focus();
+});
+
 $("find").addEventListener("click", async () => {
   const addresses = parseStops($<HTMLTextAreaElement>("addresses").value);
   const err = $("input-error");
@@ -166,6 +206,12 @@ function status(s: Stop): { cls: string; text: string } {
 }
 
 /** The stop's name: the CAD site address when there is a parcel, else what was typed. */
+/** The property ID, when the user typed it; stops entered as addresses don't show one. */
+function enteredId(s: Stop): string {
+  if (s.prop_id === null || !new RegExp(`(^|\\D)${s.prop_id}($|\\D)`).test(s.input)) return "";
+  return `<span class="prop-id">ID ${s.prop_id}</span>`;
+}
+
 function title(s: Stop): string {
   return s.source === "cad" && s.matched ? s.matched : s.input;
 }
@@ -183,11 +229,12 @@ function renderReview() {
   stops.forEach((s, i) => {
     const st = status(s);
     const li = document.createElement("li");
-    li.className = `stop ${st.cls}${placing === i ? " placing" : ""}`;
+    li.className = `stop ${st.cls}${placing === i ? " placing" : ""}${s === current ? " selected" : ""}`;
+    li.dataset.i = String(i);
     li.innerHTML = `
       <span class="num">${i + 1}</span>
       <div class="body">
-        <div class="addr">${esc(title(s))}</div>
+        <div class="addr">${esc(title(s))}${enteredId(s)}</div>
         ${detail(s) ? `<div class="matched">${esc(detail(s))}</div>` : ""}
         <span class="chip ${st.cls}">${st.text}</span>
         ${!usable(s) ? `<button class="link place" data-i="${i}">${placing === i ? "Click the map…" : "Place on map"}</button>` : ""}
@@ -200,7 +247,7 @@ function renderReview() {
         renderReview();
         return;
       }
-      if (s.location) map.flyTo({ center: [s.location.lon, s.location.lat], zoom: Math.max(map.getZoom(), 14) });
+      select(s, "list");
     });
     list.appendChild(li);
     placeMarker(s, String(i + 1), st.cls);
@@ -225,8 +272,27 @@ function renderReview() {
     .map((s, i) => (usable(s) ? `<option value="${i}">${i + 1}. ${esc(title(s))}</option>` : ""))
     .join("");
   if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
+  renderEndOptions();
   $<HTMLButtonElement>("solve").disabled = ok < 2;
 }
+
+/** "End at" choices: every usable stop except the start; defaults to the last one. */
+function renderEndOptions() {
+  const sel = $<HTMLSelectElement>("end");
+  const prev = sel.value;
+  const startIdx = $<HTMLSelectElement>("start").value;
+  sel.innerHTML = stops
+    .map((s, i) => (usable(s) && String(i) !== startIdx ? `<option value="${i}">${i + 1}. ${esc(title(s))}</option>` : ""))
+    .join("");
+  const options = [...sel.options];
+  sel.value = options.some((o) => o.value === prev) ? prev : (options.at(-1)?.value ?? "");
+}
+
+$("start").addEventListener("change", renderEndOptions);
+// Picking an end stop means ending there.
+$("end").addEventListener("change", () => {
+  document.querySelector<HTMLInputElement>('input[name="finish"][value="end"]')!.checked = true;
+});
 
 function placeMarker(s: Stop, label: string, cls: string) {
   if (!s.location) {
@@ -239,6 +305,10 @@ function placeMarker(s: Stop, label: string, cls: string) {
     s.marker = new maplibregl.Marker({ element: el, draggable: true })
       .setLngLat([s.location.lon, s.location.lat])
       .addTo(map);
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      select(s, "map");
+    });
     s.marker.on("dragend", () => {
       const p = s.marker!.getLngLat();
       s.location = { lat: p.lat, lon: p.lng };
@@ -267,8 +337,11 @@ $("solve").addEventListener("click", async () => {
   err.hidden = true;
   const startIdx = Number($<HTMLSelectElement>("start").value);
   const start = stops[startIdx];
-  const others = stops.filter((s, i) => usable(s) && i !== startIdx);
-  const roundTrip = $<HTMLInputElement>("round-trip").checked;
+  const finish = (document.querySelector<HTMLInputElement>('input[name="finish"]:checked')?.value ?? "start") as Finish;
+  const endIdx = $<HTMLSelectElement>("end").value;
+  const end = finish === "end" && endIdx !== "" ? stops[Number(endIdx)] : null;
+  if (finish === "end" && !end) return showError(err, "Pick a stop to end at.");
+  const others = stops.filter((s, i) => usable(s) && i !== startIdx && s !== end);
   const dwellMin = Math.max(0, Number($<HTMLInputElement>("dwell").value) || 0);
 
   const btn = $<HTMLButtonElement>("solve");
@@ -278,10 +351,11 @@ $("solve").addEventListener("click", async () => {
     const result: SolveResponse = await postJson("/api/solve", {
       start: routePoint(start),
       stops: others.map(routePoint),
-      round_trip: roundTrip,
+      round_trip: finish === "start",
+      end: end ? routePoint(end) : null,
       dwell_minutes: dwellMin,
     });
-    plan = { start, ordered: result.order.map((i) => others[i]), roundTrip, dwellMin, result };
+    plan = { start, ordered: result.order.map((i) => others[i]), finish, end, dwellMin, result };
     renderPlan();
   } catch (e) {
     showError(err, `Could not plan the route: ${(e as Error).message}`);
@@ -298,7 +372,7 @@ function routePoint(s: Stop): LatLon {
 
 function renderPlan() {
   if (!plan) return;
-  const { start, ordered, roundTrip, dwellMin, result } = plan;
+  const { dwellMin, result } = plan;
   show("result");
 
   $("totals").innerHTML = `
@@ -306,29 +380,22 @@ function renderPlan() {
     <div><strong>${hm(result.total_drive_s)}</strong><span>driving</span></div>
     <div><strong>${hm(result.total_s)}</strong><span>with ${dwellMin} min stops</span></div>`;
 
-  const rows: string[] = [`<li class="leg-start"><span class="num s">S</span><div class="body"><div class="addr">${esc(title(start))}</div><span class="muted">Start</span></div></li>`];
-  let elapsed = 0;
-  ordered.forEach((s, k) => {
-    const leg = result.legs[k];
-    elapsed += leg.duration_s;
-    rows.push(`<li><span class="num">${k + 1}</span><div class="body">
-      <div class="addr">${esc(title(s))}</div>
-      <span class="muted">${miles(leg.distance_m)} mi · ${mins(leg.duration_s)} · arrive +${hm(elapsed)}</span></div></li>`);
-    elapsed += dwellMin * 60;
+  visits = planVisits(plan);
+  const rows = visits.map((v, k) => {
+    const cls = v.label === "S" ? "leg-start" : "";
+    const sub = v.leg
+      ? `${miles(v.leg.distance_m)} mi · ${mins(v.leg.duration_s)} · arrive +${hm(v.arrive_s!)}`
+      : "Start";
+    return `<li class="${cls}" data-k="${k}"><span class="num${v.label === "S" ? " s" : ""}">${v.label}</span><div class="body">
+      <div class="addr">${esc(v.name)}${v.return ? "" : enteredId(v.stop)}</div><span class="muted">${sub}</span></div></li>`;
   });
-  if (roundTrip) {
-    const leg = result.legs[ordered.length];
-    elapsed += leg.duration_s;
-    rows.push(`<li class="leg-start"><span class="num s">S</span><div class="body"><div class="addr">Back to start</div>
-      <span class="muted">${miles(leg.distance_m)} mi · ${mins(leg.duration_s)} · arrive +${hm(elapsed)}</span></div></li>`);
-  }
   if (result.unassigned.length) {
     rows.push(`<li class="bad"><div class="body">${result.unassigned.length} stop(s) could not be routed.</div></li>`);
   }
   $("route-list").innerHTML = rows.join("");
 
   // Renumber pins by visit order; hide stops that aren't in the route.
-  const visit = new Map<Stop, string>([[start, "S"], ...ordered.map((s, k) => [s, String(k + 1)] as [Stop, string])]);
+  const visit = new Map<Stop, string>(visits.filter((v) => !v.return).map((v) => [v.stop, v.label]));
   for (const s of stops) {
     const label = visit.get(s);
     if (label) placeMarker(s, label, label === "S" ? "start" : "ok");
@@ -340,7 +407,60 @@ function renderPlan() {
   renderExports();
 }
 
+/** Start, each stop in order, then the return or the chosen end, with leg times and
+ *  arrival offsets. */
+function planVisits(p: Plan): Visit[] {
+  const out: Visit[] = [{ stop: p.start, label: "S", name: title(p.start), leg: null, arrive_s: null, return: false }];
+  let elapsed = 0;
+  p.ordered.forEach((s, k) => {
+    const leg = p.result.legs[k];
+    elapsed += leg.duration_s;
+    out.push({ stop: s, label: String(k + 1), name: title(s), leg, arrive_s: elapsed, return: false });
+    elapsed += p.dwellMin * 60;
+  });
+  const last = p.result.legs[p.ordered.length];
+  if (p.finish === "start" && last) {
+    elapsed += last.duration_s;
+    out.push({ stop: p.start, label: "S", name: "Back to start", leg: last, arrive_s: elapsed, return: true });
+  } else if (p.end && last) {
+    elapsed += last.duration_s;
+    out.push({ stop: p.end, label: String(p.ordered.length + 1), name: title(p.end), leg: last, arrive_s: elapsed, return: false });
+  }
+  return out;
+}
+
+/** Highlights a stop in the list and on the map. From the list, the map zooms to it;
+ *  from the map, the list scrolls to it. */
+function select(s: Stop | null, from: "list" | "map" | null = null) {
+  current = s;
+  // Whichever list is showing: the route (rows point into `visits`) or the stop check
+  // (rows point into `stops`).
+  const items = plan
+    ? [...$("route-list").querySelectorAll<HTMLElement>("li[data-k]")]
+    : [...$("stop-list").querySelectorAll<HTMLElement>("li[data-i]")];
+  const stopOf = (li: HTMLElement) => (plan ? visits[Number(li.dataset.k)]?.stop : stops[Number(li.dataset.i)]);
+  for (const li of items) li.classList.toggle("selected", s !== null && stopOf(li) === s);
+  for (const st of stops) st.marker?.getElement().classList.toggle("selected", st === s);
+  if (!s) return;
+  if (from === "list" && s.location) {
+    map.flyTo({ center: [s.location.lon, s.location.lat], zoom: Math.max(map.getZoom(), 15.5) });
+  }
+  if (from === "map") items.find((li) => li.classList.contains("selected"))?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+$("route-list").addEventListener("click", (e) => {
+  const li = (e.target as HTMLElement).closest<HTMLElement>("li[data-k]");
+  if (li) select(visits[Number(li.dataset.k)].stop, "list");
+});
+
+$("fit").addEventListener("click", () => {
+  if (plan) fitToCoords(plan.result.geometry.coordinates);
+  else fitToStops(stops);
+});
+
 function clearRoute() {
+  select(null);
+  visits = [];
   plan = null;
   (map.getSource("route") as GeoJSONSource | undefined)?.setData(emptyLine());
   $("step-result").hidden = true;
@@ -356,7 +476,8 @@ $("edit").addEventListener("click", () => {
 
 function routeStops(p: Plan): Stop[] {
   const list = [p.start, ...p.ordered];
-  if (p.roundTrip) list.push(p.start);
+  if (p.finish === "start") list.push(p.start);
+  if (p.end) list.push(p.end);
   return list;
 }
 
@@ -411,12 +532,142 @@ ${wpts}
   URL.revokeObjectURL(a.href);
 });
 
+// ---------------------------------------------------------------- print
+
+$("print").addEventListener("click", async () => {
+  if (!plan) return;
+  const btn = $<HTMLButtonElement>("print");
+  btn.disabled = true;
+  btn.textContent = "Preparing…";
+  try {
+    const image = await routeSnapshot(plan);
+    renderPrintSheet(plan, image);
+    window.print();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Print route";
+  }
+});
+
+/**
+ * A PNG of the whole route with numbered stops. The pins are page elements, not part of
+ * the map canvas, so they are drawn onto the copy here.
+ */
+async function routeSnapshot(p: Plan): Promise<string> {
+  const camera = { center: map.getCenter(), zoom: map.getZoom() };
+  const b = new maplibregl.LngLatBounds();
+  for (const c of p.result.geometry.coordinates) b.extend(c as [number, number]);
+  map.fitBounds(b, { padding: 50, maxZoom: 15, animate: false });
+  await new Promise((r) => map.once("idle", r));
+  // The WebGL buffer is only readable during the frame that drew it.
+  const frame = await new Promise<HTMLCanvasElement>((resolve) => {
+    map.once("render", () => resolve(map.getCanvas()));
+    map.triggerRepaint();
+  });
+  const out = document.createElement("canvas");
+  out.width = frame.width;
+  out.height = frame.height;
+  const ctx = out.getContext("2d")!;
+  ctx.drawImage(frame, 0, 0);
+
+  const scale = frame.width / frame.clientWidth;
+  // Larger than on screen: the image is shrunk to fit the page.
+  const r = 17 * scale;
+  ctx.font = `700 ${17 * scale}px system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  for (const v of planVisits(p)) {
+    if (v.return || !v.stop.location) continue;
+    const pt = map.project([v.stop.location.lon, v.stop.location.lat]);
+    const [x, y] = [pt.x * scale, pt.y * scale];
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = v.label === "S" ? "#1c1f23" : "#15803d";
+    ctx.fill();
+    ctx.lineWidth = 2 * scale;
+    ctx.strokeStyle = "#fff";
+    ctx.stroke();
+    ctx.fillStyle = "#fff";
+    ctx.fillText(v.label, x, y + 0.5 * scale);
+  }
+  map.jumpTo(camera);
+  return out.toDataURL("image/png");
+}
+
+function renderPrintSheet(p: Plan, image: string) {
+  const r = p.result;
+  const date = new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  const rows = planVisits(p)
+    .map((v) => {
+      const id = v.return ? "" : enteredId(v.stop).replace(/<[^>]+>/g, "").replace(/^ID /, "");
+      return `<tr>
+        <td class="seq">${v.label}</td>
+        <td>${esc(v.name)}</td>
+        <td class="id">${id}</td>
+        <td class="leg">${v.leg ? `${miles(v.leg.distance_m)} mi · ${mins(v.leg.duration_s)}` : "Start"}</td>
+        <td class="arrive">${v.arrive_s !== null ? `+${hm(v.arrive_s)}` : ""}</td>
+        <td class="done">${v.label !== "S" ? '<span class="box"></span>' : ""}</td>
+      </tr>`;
+    })
+    .join("");
+  $("print-sheet").innerHTML = `
+    <h1>Route: ${p.ordered.length + 1 + (p.end ? 1 : 0)} stops</h1>
+    <div class="meta">Collin County · printed ${esc(date)}</div>
+    <div class="totals-line">${miles(r.total_distance_m)} miles · ${hm(r.total_drive_s)} driving · ${hm(r.total_s)} with ${p.dwellMin} min per stop${p.finish === "start" ? " · returns to start" : p.end ? " · ends at a chosen stop" : " · ends at the last stop"}</div>
+    <img src="${image}" alt="Route map" />
+    <table>
+      <thead><tr><th>#</th><th>Address</th><th>Property ID</th><th>Drive</th><th>Arrive</th><th>Done</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+// ---------------------------------------------------------------- start over
+
+/** Clearing loses the stops and pins, so the first click asks and the second clears. */
+let confirmTimer: number | undefined;
+$("start-over").addEventListener("click", () => {
+  const btn = $("start-over");
+  if (!btn.classList.contains("confirm")) {
+    btn.classList.add("confirm");
+    btn.textContent = "Clear everything?";
+    confirmTimer = window.setTimeout(resetConfirm, 4000);
+    return;
+  }
+  resetConfirm();
+  startOver();
+});
+
+function resetConfirm() {
+  window.clearTimeout(confirmTimer);
+  const btn = $("start-over");
+  btn.classList.remove("confirm");
+  btn.textContent = "Start over";
+}
+
+function startOver() {
+  clearRoute();
+  clearMarkers();
+  stops = [];
+  placing = null;
+  map.getCanvas().style.cursor = "";
+  (map.getSource("parcels") as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: [] });
+  $("stop-list").innerHTML = "";
+  $<HTMLTextAreaElement>("addresses").value = "";
+  for (const id of ["input-error", "solve-error", "step-review", "step-result", "fit", "start-over"]) $(id).hidden = true;
+  $("step-input").hidden = false;
+  map.flyTo({ center: [-96.58, 33.19], zoom: 9.3 });
+  $<HTMLTextAreaElement>("addresses").focus();
+}
+
 // ---------------------------------------------------------------- helpers
 
 function show(step: "review" | "result") {
   $("step-review").hidden = step !== "review";
   $("step-result").hidden = step !== "result";
   $("step-input").hidden = step === "result";
+  $("fit").hidden = false;
+  $("start-over").hidden = false;
+  $("fit").querySelector("span")!.textContent = step === "result" ? "Show full route" : "Show all stops";
 }
 
 function clearMarkers() {

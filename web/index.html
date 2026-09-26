@@ -9,8 +9,11 @@
     <div class="app">
       <aside class="panel">
         <header>
-          <h1>Route Planner</h1>
-          <p class="sub">Collin County, TX</p>
+          <div>
+            <h1>Route Planner</h1>
+            <p class="sub">Collin County, TX</p>
+          </div>
+          <button id="start-over" class="start-over" hidden>Start over</button>
         </header>
 
         <section id="step-input">
@@ -20,8 +23,9 @@
             id="addresses"
             rows="8"
             spellcheck="false"
-            placeholder="1000001&#10;1000002&#10;1500 Parker Rd, Wylie, TX 75098"
+            placeholder="2625294&#10;401 E Virginia St, McKinney, TX 75069&#10;2100 Bloomdale Rd, McKinney, TX 75071"
           ></textarea>
+          <button id="example" class="link example">Try example stops: CAD office, McKinney City Hall, courthouse</button>
           <button id="find" class="primary">Find stops</button>
           <p id="input-error" class="error" hidden></p>
         </section>
@@ -38,9 +42,12 @@
             <label>Start at
               <select id="start"></select>
             </label>
-            <label class="check">
-              <input type="checkbox" id="round-trip" checked /> Return to start
-            </label>
+            <fieldset class="finish">
+              <legend>Finish</legend>
+              <label class="check"><input type="radio" name="finish" value="start" checked /> Return to start</label>
+              <label class="check end-at"><input type="radio" name="finish" value="end" /> End at <select id="end"></select></label>
+              <label class="check"><input type="radio" name="finish" value="open" /> Shortest route, end anywhere</label>
+            </fieldset>
             <label>Minutes per stop
               <input type="number" id="dwell" value="5" min="0" max="240" step="1" />
             </label>
@@ -57,13 +64,21 @@
           <div class="totals" id="totals"></div>
           <ol id="route-list" class="route"></ol>
           <div class="exports">
+            <button id="print" class="primary">Print route</button>
             <div id="gmaps-links"></div>
             <button id="gpx">Download GPX</button>
           </div>
         </section>
       </aside>
-      <main id="map"></main>
+      <main class="map-wrap">
+        <div id="map"></div>
+        <button id="fit" class="map-fit" hidden>
+          <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M3 8V3h5M17 8V3h-5M3 12v5h5M17 12v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <span>Show full route</span>
+        </button>
+      </main>
     </div>
+    <div id="print-sheet"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
