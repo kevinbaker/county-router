@@ -8,12 +8,12 @@ shared login. Only ports 80 and 443 are exposed.
 
 | | Minimum | Measured in a full-stack test |
 | --- | --- | --- |
-| RAM | 4 GB | about 850 MB in use (Nominatim 610 MB, OSRM 175 MB, VROOM 37 MB, Caddy 18 MB, API 9 MB) |
+| RAM | 8 GB | about 1.3 GB in use (Nominatim 700 MB, OSRM 550 MB, VROOM 40 MB, Caddy 18 MB, API 9 MB); Nominatim's import peaks higher |
 | CPU | 2 vCPU | a 250-stop matrix takes 0.4 s |
-| Disk | 20 GB | Texas download 720 MB, built data about 500 MB, CAD copy 200 MB, images about 2 GB |
+| Disk | 30 GB | Texas download 720 MB, built data about 1.1 GB, CAD copy 200 MB, images about 2 GB |
 
-Nominatim's first import needs more memory than it uses afterwards, so 2 GB servers
-are not recommended. Any Debian or Ubuntu server with Docker works.
+The road data covers Collin County and its six neighbours (Dallas, Denton, Rockwall,
+Hunt, Fannin, Grayson), so stops just outside the county can be routed. Any Debian or Ubuntu server with Docker works.
 
 Outbound access is needed to: download.geofabrik.de (weekly map data),
 services1/services2.arcgis.com (CAD and county data), geocoding.geo.census.gov
@@ -31,7 +31,7 @@ cp .env.production.example .env
 docker run --rm caddy:2 caddy hash-password --plaintext 'choose-a-password'
 nano .env      # DOMAIN, AUTH_USER, AUTH_HASH (keep the single quotes)
 
-data/build.sh                                   # map data, about 5 min
+data/build.sh                                   # map data, about 5–10 min
 docker compose build
 docker compose run --rm --user "$(id -u):$(id -g)" cad-refresh   # CAD data, about 25 min
 docker compose up -d
@@ -40,7 +40,7 @@ docker compose up -d
 Point DNS for both the domain and `www` at the server before starting; Caddy gets
 certificates on first start. Plain `http://` redirects to HTTPS (308) and `www` to
 `https://<domain>` (301). With Cloudflare, use "DNS only" until the first certificate is
-issued, then proxy with SSL mode "Full (strict)" if wanted. Nominatim imports for about two minutes after the first
+issued, then proxy with SSL mode "Full (strict)" if wanted. Nominatim imports for 5–15 minutes after the first
 start; CAD lookups and routing work before it finishes.
 
 Instead of building data on the server, you can copy `data/out/` from a machine that
@@ -67,7 +67,7 @@ CAD updates its parcel layer daily; OpenStreetMap roads change more slowly.
 - `refresh-cad.sh` downloads parcels and address points gently (one request every 5 s).
   The app switches to the new file without a restart; a failed download keeps the old one.
 - `refresh-osm.sh` rebuilds the map data, restarts OSRM (a few seconds) and re-imports
-  Nominatim (about two minutes of street-level geocoding downtime).
+  Nominatim (5–15 minutes of street-level geocoding downtime).
 
 Nothing else needs backing up: all data is rebuilt from public sources.
 

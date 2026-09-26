@@ -46,7 +46,10 @@ pub struct GeocodeResult {
     pub route_location: Option<LatLon>,
     pub matched: Option<String>,
     pub source: Option<&'static str>,
+    /// Inside Collin County.
     pub in_county: bool,
+    /// Inside the routable region (Collin and its neighbouring counties).
+    pub in_area: bool,
     pub prop_id: Option<i64>,
     /// How the point was placed on a CAD parcel.
     pub method: Option<Method>,
@@ -66,6 +69,7 @@ impl GeocodeResult {
             matched: None,
             source: None,
             in_county: false,
+            in_area: false,
             prop_id: None,
             method: None,
             parcel: None,
@@ -77,7 +81,10 @@ impl GeocodeResult {
 pub struct Geocoder {
     http: reqwest::Client,
     nominatim_url: String,
+    /// Collin County.
     boundary: Boundary,
+    /// Collin and its neighbours: everything the road data covers.
+    region: Boundary,
     cad: Cad,
     router: Arc<Router>,
     cache: Mutex<HashMap<String, GeocodeResult>>,
@@ -88,6 +95,7 @@ impl Geocoder {
         http: reqwest::Client,
         nominatim_url: String,
         boundary: Boundary,
+        region: Boundary,
         router: Arc<Router>,
         cad_db: std::path::PathBuf,
     ) -> Self {
@@ -96,6 +104,7 @@ impl Geocoder {
             http,
             nominatim_url,
             boundary,
+            region,
             router,
             cache: Mutex::new(HashMap::new()),
         }
@@ -187,6 +196,7 @@ impl Geocoder {
             matched: Some(parcel.situs.clone()),
             source: Some("cad"),
             in_county: self.boundary.contains(spot.display),
+            in_area: self.region.contains(spot.display),
             prop_id: Some(parcel.prop_id),
             method: Some(spot.method),
             parcel: Some(parcel.geojson.clone()),
@@ -207,6 +217,7 @@ impl Geocoder {
                 matched: Some(matched),
                 source: Some(source),
                 in_county: self.boundary.contains(location),
+                in_area: self.region.contains(location),
                 ..GeocodeResult::not_found(input, None)
             },
             None => GeocodeResult::not_found(input, None),

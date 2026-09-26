@@ -28,6 +28,7 @@ WORKDIR /app
 ENV BIND=0.0.0.0:8000 \
     WEB_DIR=/app/web/dist \
     BOUNDARY_PATH=/app/data/boundary/collin.geojson \
+    REGION_PATH=/app/data/boundary/region.geojson \
     CAD_DB=/data/cad.sqlite \
     BUILD_INFO_PATH=/data/BUILD_INFO \
     RUST_LOG=info

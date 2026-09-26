@@ -32,6 +32,7 @@ struct Config {
     vroom_url: String,
     nominatim_url: String,
     boundary_path: String,
+    region_path: String,
     build_info_path: String,
     web_dir: String,
     cad_db: String,
@@ -47,6 +48,7 @@ impl Config {
             vroom_url: var("VROOM_URL", "http://127.0.0.1:3000"),
             nominatim_url: var("NOMINATIM_URL", "http://127.0.0.1:8080"),
             boundary_path: var("BOUNDARY_PATH", "data/boundary/collin.geojson"),
+            region_path: var("REGION_PATH", "data/boundary/region.geojson"),
             build_info_path: var("BUILD_INFO_PATH", "data/out/BUILD_INFO"),
             web_dir: var("WEB_DIR", "web/dist"),
             cad_db: var("CAD_DB", "data/out/cad.sqlite"),
@@ -61,6 +63,8 @@ struct AppState {
     router: Arc<routing::Router>,
     /// The county outline as loaded, for drawing on the map.
     boundary_geojson: String,
+    /// The routable region's outline, for drawing on the map.
+    region_geojson: String,
 }
 
 #[tokio::main]
@@ -77,6 +81,10 @@ async fn main() -> Result<()> {
         .with_context(|| format!("reading county boundary from {}", config.boundary_path))?;
     let boundary = Boundary::from_geojson_str(&boundary_geojson)
         .with_context(|| format!("parsing county boundary from {}", config.boundary_path))?;
+    let region_geojson = std::fs::read_to_string(&config.region_path)
+        .with_context(|| format!("reading region boundary from {}", config.region_path))?;
+    let region = Boundary::from_geojson_str(&region_geojson)
+        .with_context(|| format!("parsing region boundary from {}", config.region_path))?;
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()?;
@@ -92,6 +100,7 @@ async fn main() -> Result<()> {
             http.clone(),
             config.nominatim_url.clone(),
             boundary,
+            region,
             router.clone(),
             config.cad_db.clone().into(),
         ),
@@ -99,11 +108,13 @@ async fn main() -> Result<()> {
         config,
         http,
         boundary_geojson,
+        region_geojson,
     });
 
     let api = Router::new()
         .route("/health", get(health))
         .route("/boundary", get(get_boundary))
+        .route("/region", get(get_region))
         .route("/geocode", post(geocode))
         .route("/solve", post(solve));
     // The built frontend, when present; in development Vite serves it and proxies /api.
@@ -190,6 +201,13 @@ async fn get_boundary(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     (
         [(axum::http::header::CONTENT_TYPE, "application/geo+json")],
         state.boundary_geojson.clone(),
+    )
+}
+
+async fn get_region(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    (
+        [(axum::http::header::CONTENT_TYPE, "application/geo+json")],
+        state.region_geojson.clone(),
     )
 }
 

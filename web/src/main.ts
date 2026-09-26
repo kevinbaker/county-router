@@ -19,7 +19,10 @@ type GeocodeResult = {
   route_location: LatLon | null;
   matched: string | null;
   source: "cad" | "census" | "nominatim" | null;
+  /** Inside Collin County. */
   in_county: boolean;
+  /** Inside the routable region: Collin and its neighbouring counties. */
+  in_area: boolean;
   prop_id: number | null;
   method: "building" | "frontage" | "lot_centre" | null;
   parcel: GeoJSON.Geometry | null;
@@ -73,6 +76,7 @@ let visits: Visit[] = [];
 /** The stop highlighted in the list and on the map. */
 let current: Stop | null = null;
 let county: GeoJSON.Polygon[] = [];
+let region: GeoJSON.Polygon[] = [];
 
 // ---------------------------------------------------------------- map
 
@@ -98,12 +102,15 @@ const map = new maplibregl.Map({
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
 
 map.on("load", async () => {
-  const gj = await fetch("/api/boundary").then((r) => r.json());
-  const geom = gj.geometry ?? gj;
-  county =
-    geom.type === "MultiPolygon"
-      ? geom.coordinates.map((c: GeoJSON.Position[][]) => ({ type: "Polygon", coordinates: c }))
-      : [geom];
+  const [gj, regionGj] = await Promise.all([
+    fetch("/api/boundary").then((r) => r.json()),
+    fetch("/api/region").then((r) => r.json()),
+  ]);
+  county = polygons(gj);
+  region = polygons(regionGj);
+  // The area stops can be in, faintly; Collin itself on top.
+  map.addSource("region", { type: "geojson", data: regionGj });
+  map.addLayer({ id: "region-line", type: "line", source: "region", paint: { "line-color": "#64748b", "line-width": 1, "line-opacity": 0.5, "line-dasharray": [2, 3] } });
   map.addSource("county", { type: "geojson", data: gj });
   map.addLayer({ id: "county-fill", type: "fill", source: "county", paint: { "fill-color": "#2563eb", "fill-opacity": 0.04 } });
   map.addLayer({ id: "county-line", type: "line", source: "county", paint: { "line-color": "#2563eb", "line-width": 1.5, "line-dasharray": [3, 2] } });
@@ -124,6 +131,7 @@ map.on("click", (e) => {
   s.moved = true;
   s.route_location = null;
   s.in_county = inCounty(s.location);
+  s.in_area = inRegion(s.location);
   placing = null;
   map.getCanvas().style.cursor = "";
   renderReview();
@@ -191,12 +199,12 @@ $("find").addEventListener("click", async () => {
 // ---------------------------------------------------------------- step 2: review
 
 function usable(s: Stop): boolean {
-  return s.location !== null && s.in_county;
+  return s.location !== null && s.in_area;
 }
 
 function status(s: Stop): { cls: string; text: string } {
   if (!s.location) return { cls: "bad", text: "Not found" };
-  if (!s.in_county) return { cls: "bad", text: "Outside county" };
+  if (!s.in_area) return { cls: "bad", text: "Outside service area" };
   if (s.moved) return { cls: "moved", text: "Pin set by you" };
   if (s.method === "building") return { cls: "ok", text: "Building" };
   if (s.method === "frontage") return { cls: "ok", text: "Lot frontage" };
@@ -236,7 +244,7 @@ function renderReview() {
       <div class="body">
         <div class="addr">${esc(title(s))}${enteredId(s)}</div>
         ${detail(s) ? `<div class="matched">${esc(detail(s))}</div>` : ""}
-        <span class="chip ${st.cls}">${st.text}</span>
+        <span class="chips"><span class="chip ${st.cls}">${st.text}</span>${usable(s) && !s.in_county ? `<span class="chip note">Outside Collin County</span>` : ""}</span>
         ${!usable(s) ? `<button class="link place" data-i="${i}">${placing === i ? "Click the map…" : "Place on map"}</button>` : ""}
       </div>`;
     li.addEventListener("click", (e) => {
@@ -315,6 +323,8 @@ function placeMarker(s: Stop, label: string, cls: string) {
       s.moved = true;
       s.route_location = null;
       s.in_county = inCounty(s.location);
+      s.in_area = inRegion(s.location);
+  s.in_area = inRegion(s.location);
       if (plan) {
         clearRoute();
         show("review");
@@ -685,9 +695,22 @@ function fitToCoords(coords: GeoJSON.Position[]) {
   map.fitBounds(b as LngLatBoundsLike, { padding: 60, maxZoom: 15, duration: 600 });
 }
 
-/** Ray casting against the outer rings of the county outline. */
+function polygons(gj: GeoJSON.Feature | GeoJSON.Geometry): GeoJSON.Polygon[] {
+  const geom = ("geometry" in gj ? gj.geometry : gj) as GeoJSON.Polygon | GeoJSON.MultiPolygon;
+  return geom.type === "MultiPolygon" ? geom.coordinates.map((c) => ({ type: "Polygon", coordinates: c })) : [geom];
+}
+
 function inCounty(p: LatLon): boolean {
-  return county.some((poly) => {
+  return inside(county, p);
+}
+
+function inRegion(p: LatLon): boolean {
+  return inside(region, p);
+}
+
+/** Ray casting against the outer rings. */
+function inside(polys: GeoJSON.Polygon[], p: LatLon): boolean {
+  return polys.some((poly) => {
     const ring = poly.coordinates[0];
     let inside = false;
     for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {

@@ -146,6 +146,8 @@ li.moved .num { background: #ede9fe; color: var(--moved); }
 .chip.warn { background: #fef3c7; color: var(--warn); }
 .chip.bad { background: #fee2e2; color: var(--bad); }
 .chip.moved { background: #ede9fe; color: var(--moved); }
+.chip.note { background: #f1f5f9; color: #475569; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .place { align-self: flex-start; font-size: 13px; }
 
 .totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
