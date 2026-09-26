@@ -84,6 +84,14 @@ let region: GeoJSON.Polygon[] = [];
 
 // ---------------------------------------------------------------- map
 
+/** Collin County's bounding box: the default view shows all of it on any screen size. */
+const COLLIN_BOUNDS: LngLatBoundsLike = [
+  [-96.8441, 32.9815],
+  [-96.2951, 33.4055],
+];
+/** Room for the zoom buttons (top right) and the attribution bar (bottom). */
+const COUNTY_PADDING = { top: 16, right: 56, bottom: 40, left: 16 };
+
 const map = new maplibregl.Map({
   container: "map",
   // Self-hosted basemap: region tiles, fonts and icons all come from this site.
@@ -100,8 +108,8 @@ const map = new maplibregl.Map({
     },
     layers: layers("protomaps", namedFlavor("light"), { lang: "en" }),
   },
-  center: [-96.58, 33.19],
-  zoom: 9.3,
+  bounds: COLLIN_BOUNDS,
+  fitBoundsOptions: { padding: COUNTY_PADDING },
 });
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
 
@@ -691,8 +699,10 @@ function startOver() {
   $<HTMLTextAreaElement>("addresses").value = "";
   for (const id of ["input-error", "solve-error", "step-review", "step-result", "fit", "start-over"]) $(id).hidden = true;
   $("step-input").hidden = false;
-  map.flyTo({ center: [-96.58, 33.19], zoom: 9.3 });
-  $<HTMLTextAreaElement>("addresses").focus();
+  map.fitBounds(COLLIN_BOUNDS, { padding: COUNTY_PADDING });
+  // On phones, focusing would scroll the map away and pop up the keyboard.
+  if (window.matchMedia("(max-width: 760px)").matches) window.scrollTo({ top: 0 });
+  else $<HTMLTextAreaElement>("addresses").focus();
 }
 
 // ---------------------------------------------------------------- helpers
