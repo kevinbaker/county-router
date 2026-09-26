@@ -82,8 +82,8 @@ services:
       # Outside /nominatim, which the image chowns recursively on start.
       - ./data/out/collin.osm.pbf:/import/collin.osm.pbf:ro
       - nominatim-db:/var/lib/postgresql/16/main
-    # About 700 MB in use; the import needs more.
-    mem_limit: 3g
+    # About 700 MB in use; the 7-county import peaks near 3 GB.
+    mem_limit: 4g
 
   # Not a service: `docker compose run --rm cad-refresh` (see ops/refresh-cad.sh).
   cad-refresh:
