@@ -3,6 +3,9 @@
 #
 #   data/build.sh            boundary (if missing), Texas download, clip, OSRM
 #   data/build.sh --tiles    also build the PMTiles basemap with Planetiler
+#   data/build.sh --cad      also download CAD parcels and county address points
+#                            (about 25 min: one request every 5 s, to go easy on
+#                            the county's servers; CAD updates daily)
 #
 # OUT (default data/out) lets the weekly refresh build into a fresh directory.
 # Nominatim imports data/out/collin.osm.pbf itself on first container start.
@@ -19,7 +22,14 @@ CACHE=data/cache
 OUT=${OUT:-data/out}
 
 tiles=false
-[[ ${1:-} == --tiles ]] && tiles=true
+cad=false
+for arg in "$@"; do
+  case $arg in
+    --tiles) tiles=true ;;
+    --cad) cad=true ;;
+    *) echo "unknown option: $arg" >&2; exit 1 ;;
+  esac
+done
 
 need() { command -v "$1" >/dev/null || { echo "missing $1: $2" >&2; exit 1; }; }
 need curl "sudo apt install curl"
@@ -68,6 +78,11 @@ if $tiles; then
 fi
 
 # The clipped file drops the replication header, so read it from the source extract.
+if $cad; then
+  log "CAD parcels and county address points"
+  cargo run -q --release -p county-dataprep -- cad --out "$OUT/cad.sqlite" --delay-ms 5000
+fi
+
 osm_ts=$(osmium fileinfo -g header.option.osmosis_replication_timestamp "$CACHE/texas.osm.pbf" || true)
 printf 'built %s from OSM data as of %s\n' "$(date -u +%FT%TZ)" "${osm_ts:-unknown}" > "$OUT/BUILD_INFO"
 log "Done: $(cat "$OUT/BUILD_INFO")"

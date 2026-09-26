@@ -89,9 +89,10 @@ impl Geocoder {
         nominatim_url: String,
         boundary: Boundary,
         router: Arc<Router>,
+        cad_db: std::path::PathBuf,
     ) -> Self {
         Self {
-            cad: Cad::new(http.clone()),
+            cad: Cad::new(http.clone(), cad_db),
             http,
             nominatim_url,
             boundary,

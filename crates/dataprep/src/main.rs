@@ -1,6 +1,8 @@
 //! Offline data preparation for the route planner. Run by `data/build.sh`.
 
-use std::path::PathBuf;
+mod cad;
+
+use std::{path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -31,6 +33,21 @@ enum Command {
         #[arg(long)]
         out_buffered: PathBuf,
     },
+    /// Downloads CAD parcels and county 911 address points into a SQLite file.
+    Cad {
+        /// Output SQLite file; replaced only when the download completes.
+        #[arg(long, default_value = "data/out/cad.sqlite")]
+        out: PathBuf,
+        /// Features per request (the services allow at most 2000).
+        #[arg(long, default_value_t = 2000)]
+        page_size: u32,
+        /// Pause between requests, in milliseconds.
+        #[arg(long, default_value_t = 3000)]
+        delay_ms: u64,
+        /// Stop after this many pages per layer, for a trial run.
+        #[arg(long)]
+        max_pages: Option<u32>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -53,6 +70,19 @@ fn main() -> Result<()> {
             );
             Ok(())
         }
+        Command::Cad {
+            out,
+            page_size,
+            delay_ms,
+            max_pages,
+        } => cad::download(
+            &out,
+            &cad::Options {
+                page_size,
+                delay: Duration::from_millis(delay_ms),
+                max_pages,
+            },
+        ),
     }
 }
 

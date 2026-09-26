@@ -34,6 +34,7 @@ struct Config {
     boundary_path: String,
     build_info_path: String,
     web_dir: String,
+    cad_db: String,
 }
 
 impl Config {
@@ -48,6 +49,7 @@ impl Config {
             boundary_path: var("BOUNDARY_PATH", "data/boundary/collin.geojson"),
             build_info_path: var("BUILD_INFO_PATH", "data/out/BUILD_INFO"),
             web_dir: var("WEB_DIR", "web/dist"),
+            cad_db: var("CAD_DB", "data/out/cad.sqlite"),
         }
     }
 }
@@ -91,6 +93,7 @@ async fn main() -> Result<()> {
             config.nominatim_url.clone(),
             boundary,
             router.clone(),
+            config.cad_db.clone().into(),
         ),
         router,
         config,

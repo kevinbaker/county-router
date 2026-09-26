@@ -1,5 +1,7 @@
 //! Types shared by the API and the data-prep tools.
 
+pub mod cad;
+
 use std::path::Path;
 
 use geo::{BoundingRect, Contains, Geometry, MultiPolygon, Point, Rect};

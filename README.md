@@ -32,7 +32,12 @@ cp .env.example .env
 ```sh
 data/build.sh            # Texas download (~720 MB, cached), clip, OSRM build
 data/build.sh --tiles    # also the PMTiles basemap
+data/build.sh --cad      # also CAD parcels + county address points (~25 min, gentle)
 ```
+
+The CAD download alone: `cargo run --release -p county-dataprep -- cad`. It writes
+`data/out/cad.sqlite` and replaces it only when the download is complete; the API
+picks up a new copy without a restart.
 
 The boundary files are rebuilt only when `data/boundary/collin.geojson` is missing.
 
@@ -51,8 +56,9 @@ http://127.0.0.1:5173 with live reload and proxies `/api` to the Rust API on :80
 Stops are CAD property IDs or addresses. Each is matched to a Collin CAD parcel (by ID,
 or by the parcel's site address), then placed on the county 911 point for the building
 when there is one, otherwise on the lot edge facing the addressed street. Routing
-targets that street, so long rural lots aren't reached from their back road. Both
-CAD and county services are public ArcGIS layers, queried live and cached in memory.
+targets that street, so long rural lots aren't reached from their back road. Parcels
+and building points come from the local `cad.sqlite` when present, with the live
+public ArcGIS layers as a fallback for anything newer.
 Addresses with no parcel fall back to the Census Geocoder, then Nominatim (street
 level only in most of the county). The prototype basemap uses openstreetmap.org tiles, which is fine for
 light development use only; replace it with the PMTiles build before real use.
