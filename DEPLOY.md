@@ -12,8 +12,8 @@ There is no login: the site is public. Only ports 80 and 443 are exposed.
 | CPU | 2 vCPU | a 250-stop matrix takes 0.4 s |
 | Disk | 30 GB | Texas download 720 MB, built data about 1.1 GB, CAD copy 200 MB, images about 2 GB |
 
-The road data covers Collin County and its six neighbours (Dallas, Denton, Rockwall,
-Hunt, Fannin, Grayson), so stops just outside the county can be routed. Any Debian or Ubuntu server with Docker works.
+The road data covers Collin County, its six neighbours (Dallas, Denton, Rockwall,
+Hunt, Fannin, Grayson) and Kaufman and Van Zandt, so stops just outside the county can be routed. Any Debian or Ubuntu server with Docker works.
 
 Outbound access is needed to: download.geofabrik.de (weekly map data),
 services1/services2.arcgis.com (CAD and county data), geocoding.geo.census.gov

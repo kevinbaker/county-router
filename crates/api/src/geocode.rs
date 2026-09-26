@@ -48,7 +48,7 @@ pub struct GeocodeResult {
     pub source: Option<&'static str>,
     /// Inside Collin County.
     pub in_county: bool,
-    /// Inside the routable region (Collin and its neighbouring counties).
+    /// Inside the routable region (Collin and nearby counties).
     pub in_area: bool,
     pub prop_id: Option<i64>,
     /// How the point was placed on a CAD parcel.

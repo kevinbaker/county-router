@@ -22,8 +22,9 @@ TEXAS_URL=https://download.geofabrik.de/north-america/us/texas-latest.osm.pbf
 TIGERWEB=https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/State_County/MapServer/1/query
 # Collin County, TX (FIPS 48085).
 COLLIN="'48085'"
-# The routable region: Collin plus Dallas, Denton, Rockwall, Hunt, Fannin and Grayson.
-REGION="'48085','48113','48121','48397','48231','48147','48181'"
+# The routable region: Collin, its neighbours Dallas, Denton, Rockwall, Hunt, Fannin and
+# Grayson, and Kaufman and Van Zandt to the southeast (commuting distance).
+REGION="'48085','48113','48121','48397','48231','48147','48181','48257','48467'"
 BUFFER_KM=5
 CACHE=data/cache
 OUT=${OUT:-data/out}

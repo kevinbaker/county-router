@@ -62,7 +62,7 @@ services:
     command: osrm-routed --algorithm mld --max-table-size 1000 /data/collin.osrm
     volumes:
       - ./data/out:/data:ro
-    # About 550 MB for the 7-county road network.
+    # About 550 MB for the 9-county road network.
     mem_limit: 1536m
 
   vroom:
@@ -93,7 +93,7 @@ services:
       # Outside /nominatim, which the image chowns recursively on start.
       - ./data/out/collin.osm.pbf:/import/collin.osm.pbf:ro
       - nominatim-db:/var/lib/postgresql/16/main
-    # About 700 MB in use; the 7-county import peaks near 3 GB.
+    # About 700 MB in use; the 9-county import peaks near 3 GB.
     mem_limit: 4g
 
   # Not a service: `docker compose run --rm cad-refresh` (see ops/refresh-cad.sh).

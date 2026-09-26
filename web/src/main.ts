@@ -25,7 +25,7 @@ type GeocodeResult = {
   source: "cad" | "census" | "nominatim" | null;
   /** Inside Collin County. */
   in_county: boolean;
-  /** Inside the routable region: Collin and its neighbouring counties. */
+  /** Inside the routable region: Collin and nearby counties. */
   in_area: boolean;
   prop_id: number | null;
   method: "building" | "frontage" | "lot_centre" | null;

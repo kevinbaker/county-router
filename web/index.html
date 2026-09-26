@@ -4,21 +4,25 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Collin County Route Planner</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
   </head>
   <body>
     <div class="app">
-      <aside class="panel">
-        <header>
+      <header class="topbar">
+        <div class="brand">
+          <img class="logo" src="/logo.svg" alt="" width="36" height="36" />
           <div>
             <h1>Route Planner</h1>
             <p class="sub">Collin County, TX</p>
           </div>
-          <button id="start-over" class="start-over" hidden>Start over</button>
-        </header>
+        </div>
+        <button id="start-over" class="start-over" hidden>Start over</button>
+      </header>
+      <aside class="panel">
 
         <section id="step-input">
           <label for="addresses">Stops</label>
-          <p class="hint">CAD property IDs or addresses, one per line. A list of IDs can also be separated by commas or spaces. Addresses in neighboring counties work too.</p>
+          <p class="hint">CAD property IDs or addresses, one per line. A list of IDs can also be separated by commas or spaces. Addresses in nearby counties work too.</p>
           <textarea
             id="addresses"
             rows="8"
@@ -35,7 +39,7 @@
             <h2>Check stops</h2>
             <span id="review-summary" class="muted"></span>
           </div>
-          <p class="hint">Drag any pin to correct it. Green outlines are the CAD parcels. Stops can be anywhere in Collin and its neighboring counties (dotted outline); stops marked “not found” are skipped until you place them.</p>
+          <p class="hint">Drag any pin to correct it. Green outlines are the CAD parcels. Stops can be anywhere in Collin and the nearby counties (dotted outline); stops marked “not found” are skipped until you place them.</p>
           <ol id="stop-list" class="stops"></ol>
 
           <div class="options">

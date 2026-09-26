@@ -22,17 +22,27 @@ body { margin: 0; }
 .app {
   display: grid;
   grid-template-columns: minmax(320px, 400px) 1fr;
+  grid-template-rows: auto 1fr;
+  grid-template-areas: "top map" "panel map";
   height: 100dvh;
 }
 
+.topbar {
+  grid-area: top;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 20px 20px 16px;
+}
+
 .panel {
+  grid-area: panel;
   background: var(--panel);
   border-right: 1px solid var(--line);
   overflow-y: auto;
-  padding: 20px 20px 32px;
+  padding: 4px 20px 32px;
 }
 
-.map-wrap { position: relative; height: 100%; min-height: 0; }
+.map-wrap { grid-area: map; position: relative; height: 100%; min-height: 0; }
 #map { position: absolute; inset: 0; }
 
 .map-fit {
@@ -53,11 +63,13 @@ body { margin: 0; }
 }
 .map-fit:hover { filter: brightness(1.1); }
 
-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 header h1 { font-size: 20px; margin: 0; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.logo { flex: none; width: 36px; height: 36px; }
 .start-over { padding: 6px 12px; font-size: 13px; font-weight: 500; white-space: nowrap; }
 .start-over.confirm { background: var(--bad); border-color: var(--bad); color: #fff; }
-.sub { margin: 2px 0 20px; color: var(--muted); }
+.sub { margin: 2px 0 0; color: var(--muted); }
 h2 { font-size: 15px; margin: 0; }
 
 section { display: flex; flex-direction: column; gap: 12px; }
@@ -187,9 +199,14 @@ li.moved .num { background: #ede9fe; color: var(--moved); }
 #print-sheet { display: none; }
 
 @media (max-width: 760px) {
-  .app { grid-template-columns: 1fr; grid-template-rows: 45dvh auto; height: auto; }
-  .map-wrap { grid-row: 1; height: 45dvh; }
-  .panel { grid-row: 2; border-right: 0; padding: 16px; }
+  /* Phones: a slim bar with the logo on top, then the map, then the panel. */
+  .app { grid-template-columns: 1fr; grid-template-rows: auto 45dvh auto; grid-template-areas: "top" "map" "panel"; height: auto; }
+  .topbar { border-right: 0; border-bottom: 1px solid var(--line); padding: 10px 16px; }
+  .topbar .logo { width: 30px; height: 30px; }
+  .topbar h1 { font-size: 17px; }
+  .topbar .sub { font-size: 12px; }
+  .map-wrap { height: 45dvh; }
+  .panel { border-right: 0; padding: 16px; }
 }
 
 @media print {
