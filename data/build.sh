@@ -2,8 +2,7 @@
 # Builds the routing and geocoding data for Collin County and its neighbours, so stops
 # (and starts) just outside the county can be routed too.
 #
-#   data/build.sh            boundary (if missing), Texas download, clip, OSRM
-#   data/build.sh --tiles    also build the PMTiles basemap with Planetiler
+#   data/build.sh            boundaries (if missing), Texas download, clip, OSRM, map tiles
 #   data/build.sh --cad      also download CAD parcels and county address points
 #                            (about 25 min: one request every 5 s, to go easy on
 #                            the county's servers; CAD updates daily)
@@ -15,7 +14,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 OSRM_IMAGE=${OSRM_IMAGE:-ghcr.io/project-osrm/osrm-backend:v26.9.0-debian}
-PLANETILER_IMAGE=${PLANETILER_IMAGE:-ghcr.io/onthegomap/planetiler:latest}
+# Map tiles: cut from Protomaps' daily planet build with the pmtiles tool.
+PMTILES_VERSION=1.31.2
+PROTOMAPS_BUILDS=https://build-metadata.protomaps.dev/builds.json
 TEXAS_URL=https://download.geofabrik.de/north-america/us/texas-latest.osm.pbf
 # County outlines from Census TIGERweb.
 TIGERWEB=https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/State_County/MapServer/1/query
@@ -27,11 +28,9 @@ BUFFER_KM=5
 CACHE=data/cache
 OUT=${OUT:-data/out}
 
-tiles=false
 cad=false
 for arg in "$@"; do
   case $arg in
-    --tiles) tiles=true ;;
     --cad) cad=true ;;
     *) echo "unknown option: $arg" >&2; exit 1 ;;
   esac
@@ -86,16 +85,20 @@ osrm osrm-extract -p /opt/car.lua /data/collin.osm.pbf
 osrm osrm-partition /data/collin.osrm
 osrm osrm-customize /data/collin.osrm
 
-if $tiles; then
-  log "PMTiles basemap"
-  mkdir -p "$CACHE/planetiler"
-  docker run --rm -u "$(id -u):$(id -g)" \
-    -v "$PWD/$OUT:/data" -v "$PWD/$CACHE/planetiler:/data/sources" \
-    "$PLANETILER_IMAGE" --osm-path=/data/collin.osm.pbf \
-    --output=/data/collin.pmtiles --download --force
+log "Map tiles (Protomaps extract, zoom 0-15)"
+pmtiles=$CACHE/bin/pmtiles-$PMTILES_VERSION
+if [[ ! -x $pmtiles ]]; then
+  mkdir -p "$CACHE/bin"
+  curl -fsSL "https://github.com/protomaps/go-pmtiles/releases/download/v$PMTILES_VERSION/go-pmtiles_${PMTILES_VERSION}_Linux_x86_64.tar.gz" \
+    | tar -xz -C "$CACHE/bin" pmtiles
+  mv "$CACHE/bin/pmtiles" "$pmtiles"
 fi
+build=$(curl -fsS "$PROTOMAPS_BUILDS" | grep -oE '"key": ?"[0-9]{8}\.pmtiles"' | tail -1 | grep -oE '[0-9]{8}\.pmtiles')
+"$pmtiles" extract "https://build.protomaps.com/$build" "$OUT/region.pmtiles.tmp" \
+  --region=data/boundary/region-buffered.geojson --maxzoom=15
+mv "$OUT/region.pmtiles.tmp" "$OUT/region.pmtiles"
+echo "tiles from Protomaps build $build"
 
-# The clipped file drops the replication header, so read it from the source extract.
 if $cad; then
   log "CAD parcels and county address points"
   need cargo "https://rustup.rs (or use ops/refresh-cad.sh, which runs it in Docker)"

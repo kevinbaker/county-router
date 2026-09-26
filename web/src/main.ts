@@ -2,10 +2,14 @@ import * as maplibregl from "maplibre-gl";
 import type { GeoJSONSource, LngLatBoundsLike } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
+import { layers, namedFlavor } from "@protomaps/basemaps";
+import { Protocol } from "pmtiles";
 import "./style.css";
 
 // Vite moves MapLibre's worker when bundling; point MapLibre at the bundled copy.
 maplibregl.setWorkerUrl(workerUrl);
+// Map tiles come from one PMTiles file on our own server, read with range requests.
+maplibregl.addProtocol("pmtiles", new Protocol().tile);
 
 type LatLon = { lat: number; lon: number };
 type Confidence = "high" | "low" | "none";
@@ -82,19 +86,19 @@ let region: GeoJSON.Polygon[] = [];
 
 const map = new maplibregl.Map({
   container: "map",
-  // Development basemap. Replace with the self-hosted PMTiles build before real use.
+  // Self-hosted basemap: region tiles, fonts and icons all come from this site.
   style: {
     version: 8,
+    glyphs: `${location.origin}/basemap/fonts/{fontstack}/{range}.pbf`,
+    sprite: `${location.origin}/basemap/sprites/v4/light`,
     sources: {
-      osm: {
-        type: "raster",
-        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-        tileSize: 256,
-        maxzoom: 19,
-        attribution: "© OpenStreetMap contributors",
+      protomaps: {
+        type: "vector",
+        url: `pmtiles://${location.origin}/tiles/region.pmtiles`,
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://protomaps.com">Protomaps</a>',
       },
     },
-    layers: [{ id: "osm", type: "raster", source: "osm" }],
+    layers: layers("protomaps", namedFlavor("light"), { lang: "en" }),
   },
   center: [-96.58, 33.19],
   zoom: 9.3,
@@ -724,6 +728,10 @@ function inside(polys: GeoJSON.Polygon[], p: LatLon): boolean {
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (r.status === 429) {
+    const wait = Number(r.headers.get("retry-after")) || 30;
+    throw new Error(`Too many requests. Please wait ${wait} seconds and try again.`);
+  }
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error ?? `${r.status} ${r.statusText}`);
   return data as T;

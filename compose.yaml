@@ -6,8 +6,17 @@
 #   ops/refresh-osm.sh                            weekly map rebuild
 name: county-router
 
+# Keep container logs from filling the disk.
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
 services:
   caddy:
+    <<: *logging
     image: caddy:2
     restart: unless-stopped
     ports:
@@ -24,6 +33,7 @@ services:
     mem_limit: 128m
 
   api:
+    <<: *logging
     build: .
     image: county-router-api
     restart: unless-stopped
@@ -45,6 +55,7 @@ services:
     mem_limit: 384m
 
   osrm:
+    <<: *logging
     image: ghcr.io/project-osrm/osrm-backend:v26.9.0-debian
     restart: unless-stopped
     # The default max table size is 100 locations; routes go up to 250 stops.
@@ -55,6 +66,7 @@ services:
     mem_limit: 1536m
 
   vroom:
+    <<: *logging
     image: ghcr.io/vroom-project/vroom-docker:v1.15.0
     restart: unless-stopped
     environment:
@@ -66,6 +78,7 @@ services:
     mem_limit: 384m
 
   nominatim:
+    <<: *logging
     image: mediagis/nominatim:5.3
     restart: unless-stopped
     shm_size: 1g

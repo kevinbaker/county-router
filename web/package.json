@@ -8,7 +8,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "maplibre-gl": "^6.11.2"
+    "@protomaps/basemaps": "^5.7.2",
+    "maplibre-gl": "^6.11.2",
+    "pmtiles": "^4.5.0"
   },
   "devDependencies": {
     "@types/geojson": "^7946.0.16",

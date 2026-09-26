@@ -30,6 +30,7 @@ ENV BIND=0.0.0.0:8000 \
     BOUNDARY_PATH=/app/data/boundary/collin.geojson \
     REGION_PATH=/app/data/boundary/region.geojson \
     CAD_DB=/data/cad.sqlite \
+    TILES_PATH=/data/region.pmtiles \
     BUILD_INFO_PATH=/data/BUILD_INFO \
     RUST_LOG=info
 USER app

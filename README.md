@@ -32,8 +32,7 @@ cp .env.example .env
 ## Build the data
 
 ```sh
-data/build.sh            # Texas download (~720 MB, cached), clip, OSRM build
-data/build.sh --tiles    # also the PMTiles basemap
+data/build.sh            # Texas download (~720 MB, cached), clip, OSRM, map tiles
 data/build.sh --cad      # also CAD parcels + county address points (~25 min, gentle)
 ```
 
@@ -62,8 +61,9 @@ targets that street, so long rural lots aren't reached from their back road. Par
 and building points come from the local `cad.sqlite` when present, with the live
 public ArcGIS layers as a fallback for anything newer.
 Addresses with no parcel fall back to the Census Geocoder, then Nominatim (street
-level only in most of the county). The prototype basemap uses openstreetmap.org tiles, which is fine for
-light development use only; replace it with the PMTiles build before real use.
+level only in most of the county). The basemap is self-hosted: vector tiles for the region extracted from
+Protomaps' daily build (`data/out/region.pmtiles`), with fonts and icons in
+`web/public/basemap/`.
 
 ## Deploy
 

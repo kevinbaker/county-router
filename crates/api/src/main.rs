@@ -6,7 +6,7 @@ mod geocode;
 mod routing;
 mod street;
 
-use std::{sync::Arc, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use axum::{
@@ -18,11 +18,14 @@ use axum::{
 };
 use county_core::Boundary;
 use serde::{Deserialize, Serialize};
-use tower_http::services::ServeDir;
+use tower_governor::{
+    GovernorLayer, governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor,
+};
+use tower_http::services::{ServeDir, ServeFile};
 use tracing::{error, info};
 
 use crate::{
-    geocode::{GeocodeResult, Geocoder},
+    geocode::Geocoder,
     routing::{SolveRequest, SolveResponse},
 };
 
@@ -36,6 +39,7 @@ struct Config {
     build_info_path: String,
     web_dir: String,
     cad_db: String,
+    tiles_path: String,
 }
 
 impl Config {
@@ -52,6 +56,7 @@ impl Config {
             build_info_path: var("BUILD_INFO_PATH", "data/out/BUILD_INFO"),
             web_dir: var("WEB_DIR", "web/dist"),
             cad_db: var("CAD_DB", "data/out/cad.sqlite"),
+            tiles_path: var("TILES_PATH", "data/out/region.pmtiles"),
         }
     }
 }
@@ -90,6 +95,7 @@ async fn main() -> Result<()> {
         .build()?;
     let bind = config.bind.clone();
     let web_dir = config.web_dir.clone();
+    let tiles_path = config.tiles_path.clone();
     let router = Arc::new(routing::Router::new(
         http.clone(),
         config.osrm_url.clone(),
@@ -111,21 +117,48 @@ async fn main() -> Result<()> {
         region_geojson,
     });
 
+    // Per-visitor limit on the endpoints that do real work. Caddy sets X-Forwarded-For
+    // to the actual client address (it ignores one sent by the client), so the key
+    // can't be spoofed while the API is only reachable through Caddy.
+    let limits = GovernorConfigBuilder::default()
+        .key_extractor(SmartIpKeyExtractor)
+        .per_millisecond(env_u64("RATE_LIMIT_REFILL_MS", 2000))
+        .burst_size(env_u64("RATE_LIMIT_BURST", 20) as u32)
+        .finish()
+        .context("rate limit settings")?;
+    let limiter = limits.limiter().clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            tick.tick().await;
+            limiter.retain_recent();
+        }
+    });
+    let limited = Router::new()
+        .route("/geocode", post(geocode))
+        .route("/solve", post(solve))
+        .layer(GovernorLayer::new(limits));
     let api = Router::new()
         .route("/health", get(health))
         .route("/boundary", get(get_boundary))
         .route("/region", get(get_region))
-        .route("/geocode", post(geocode))
-        .route("/solve", post(solve));
+        .merge(limited);
     // The built frontend, when present; in development Vite serves it and proxies /api.
     let app = Router::new()
         .nest("/api", api)
+        // Only the tile file itself: the same directory holds the CAD database.
+        // ServeFile answers the range requests the map makes for individual tiles.
+        .route_service("/tiles/region.pmtiles", ServeFile::new(tiles_path))
         .fallback_service(ServeDir::new(web_dir))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     info!("listening on {bind}");
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
@@ -227,16 +260,36 @@ struct GeocodeRequest {
     addresses: Vec<String>,
 }
 
-async fn geocode(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<GeocodeRequest>,
-) -> Json<Vec<GeocodeResult>> {
-    Json(state.geocoder.geocode_all(&req.addresses).await)
+/// Most stops in one request, matching the UI.
+const MAX_STOPS: usize = 250;
+
+fn too_many(n: usize) -> Response {
+    let body = Json(serde_json::json!({
+        "error": format!("{n} stops; the limit is {MAX_STOPS}")
+    }));
+    (StatusCode::PAYLOAD_TOO_LARGE, body).into_response()
 }
 
-async fn solve(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<SolveRequest>,
-) -> Result<Json<SolveResponse>, ApiError> {
-    state.router.solve(&req).await.map(Json).map_err(ApiError)
+async fn geocode(State(state): State<Arc<AppState>>, Json(req): Json<GeocodeRequest>) -> Response {
+    if req.addresses.len() > MAX_STOPS {
+        return too_many(req.addresses.len());
+    }
+    Json(state.geocoder.geocode_all(&req.addresses).await).into_response()
+}
+
+async fn solve(State(state): State<Arc<AppState>>, Json(req): Json<SolveRequest>) -> Response {
+    if req.stops.len() > MAX_STOPS {
+        return too_many(req.stops.len());
+    }
+    match state.router.solve(&req).await {
+        Ok(route) => Json::<SolveResponse>(route).into_response(),
+        Err(err) => ApiError(err).into_response(),
+    }
+}
+
+fn env_u64(name: &str, default: u64) -> u64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
