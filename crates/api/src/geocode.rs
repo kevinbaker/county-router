@@ -48,7 +48,6 @@ pub struct GeocodeResult {
     pub source: Option<&'static str>,
     pub in_county: bool,
     pub prop_id: Option<i64>,
-    pub owner: Option<String>,
     /// How the point was placed on a CAD parcel.
     pub method: Option<Method>,
     /// The lot outline as a GeoJSON geometry.
@@ -68,7 +67,6 @@ impl GeocodeResult {
             source: None,
             in_county: false,
             prop_id: None,
-            owner: None,
             method: None,
             parcel: None,
             note,
@@ -189,7 +187,6 @@ impl Geocoder {
             source: Some("cad"),
             in_county: self.boundary.contains(spot.display),
             prop_id: Some(parcel.prop_id),
-            owner: parcel.owner.clone(),
             method: Some(spot.method),
             parcel: Some(parcel.geojson.clone()),
             note: None,

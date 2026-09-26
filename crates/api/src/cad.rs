@@ -21,7 +21,7 @@ use crate::street;
 
 const PARCELS_URL: &str = "https://services2.arcgis.com/uXyoacYrZTPTKD3R/ArcGIS/rest/services/CCAD_Parcel_Feature_Set/FeatureServer/4/query";
 const ADDRESS_POINTS_URL: &str = "https://services1.arcgis.com/fdWXd5OobWR1E3er/arcgis/rest/services/AddressPoints_1Spatial/FeatureServer/0/query";
-const PARCEL_FIELDS: &str = "PROP_ID,situsBldgNum,situsStreetPrefix,situsStreetName,situsStreetSuffix,situsCity,situsZip,ownerName";
+const PARCEL_FIELDS: &str = "PROP_ID,situsBldgNum,situsStreetPrefix,situsStreetName,situsStreetSuffix,situsCity,situsZip";
 /// Property IDs per `IN (...)` query.
 const ID_CHUNK: usize = 100;
 /// A 911 point this close outside a parcel still counts as that parcel's building.
@@ -36,7 +36,6 @@ pub struct Parcel {
     pub street: String,
     /// Full site address, e.g. "100 N FOURTH ST, PRINCETON, TX 75407".
     pub situs: String,
-    pub owner: Option<String>,
     pub shape: MultiPolygon<f64>,
     /// The lot outline as GeoJSON, for drawing.
     pub geojson: Value,
@@ -260,7 +259,6 @@ fn parse_parcel(f: &Value) -> Option<Parcel> {
         number,
         street,
         situs,
-        owner: text("ownerName"),
         shape,
         geojson: f["geometry"].clone(),
     })

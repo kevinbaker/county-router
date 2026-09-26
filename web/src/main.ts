@@ -21,7 +21,6 @@ type GeocodeResult = {
   source: "cad" | "census" | "nominatim" | null;
   in_county: boolean;
   prop_id: number | null;
-  owner: string | null;
   method: "building" | "frontage" | "lot_centre" | null;
   parcel: GeoJSON.Geometry | null;
   note: string | null;
@@ -171,9 +170,9 @@ function title(s: Stop): string {
   return s.source === "cad" && s.matched ? s.matched : s.input;
 }
 
-/** Second line: property ID and owner for parcels, the matched address otherwise. */
+/** Second line: why a stop wasn't found, or the matched address for typed addresses. */
 function detail(s: Stop): string {
-  if (s.prop_id !== null) return [`#${s.prop_id}`, s.owner].filter(Boolean).join(" · ");
+  if (s.source === "cad") return "";
   if (s.note) return s.note;
   return s.matched && !s.moved ? s.matched : "";
 }
@@ -307,14 +306,14 @@ function renderPlan() {
     <div><strong>${hm(result.total_drive_s)}</strong><span>driving</span></div>
     <div><strong>${hm(result.total_s)}</strong><span>with ${dwellMin} min stops</span></div>`;
 
-  const rows: string[] = [`<li class="leg-start"><span class="num s">S</span><div class="body"><div class="addr">${esc(title(start))}</div><span class="muted">Start${start.prop_id !== null ? ` · #${start.prop_id}` : ""}</span></div></li>`];
+  const rows: string[] = [`<li class="leg-start"><span class="num s">S</span><div class="body"><div class="addr">${esc(title(start))}</div><span class="muted">Start</span></div></li>`];
   let elapsed = 0;
   ordered.forEach((s, k) => {
     const leg = result.legs[k];
     elapsed += leg.duration_s;
     rows.push(`<li><span class="num">${k + 1}</span><div class="body">
       <div class="addr">${esc(title(s))}</div>
-      <span class="muted">${s.prop_id !== null ? `#${s.prop_id} · ` : ""}${miles(leg.distance_m)} mi · ${mins(leg.duration_s)} · arrive +${hm(elapsed)}</span></div></li>`);
+      <span class="muted">${miles(leg.distance_m)} mi · ${mins(leg.duration_s)} · arrive +${hm(elapsed)}</span></div></li>`);
     elapsed += dwellMin * 60;
   });
   if (roundTrip) {
@@ -396,7 +395,7 @@ function renderExports() {
 $("gpx").addEventListener("click", () => {
   if (!plan) return;
   const wpts = [plan.start, ...plan.ordered]
-    .map((s, k) => `  <wpt lat="${s.location!.lat}" lon="${s.location!.lon}"><name>${k === 0 ? "Start" : k}. ${xml(title(s))}${s.prop_id !== null ? ` (#${s.prop_id})` : ""}</name></wpt>`)
+    .map((s, k) => `  <wpt lat="${s.location!.lat}" lon="${s.location!.lon}"><name>${k === 0 ? "Start" : k}. ${xml(title(s))}</name></wpt>`)
     .join("\n");
   const trk = plan.result.geometry.coordinates.map(([lon, lat]) => `<trkpt lat="${lat}" lon="${lon}"/>`).join("");
   const gpx = `<?xml version="1.0" encoding="UTF-8"?>
