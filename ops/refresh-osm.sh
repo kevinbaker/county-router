@@ -2,7 +2,7 @@
 # Rebuilds the OpenStreetMap data (routing and street geocoding), then reloads OSRM and
 # re-imports Nominatim. Routing is down for a few seconds and street-level geocoding for
 # about two minutes; CAD lookups keep working. Run weekly from cron:
-#   0 3 * * 0  /opt/county-router/ops/refresh-osm.sh >> /var/log/county-router-osm.log 2>&1
+#   0 3 * * 0  /opt/county-router/ops/refresh-osm.sh >> /opt/county-router/logs/refresh-osm.log 2>&1
 set -euo pipefail
 cd "$(dirname "$0")/.."
 data/build.sh

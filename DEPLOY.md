@@ -58,9 +58,11 @@ docker compose up -d --build
 CAD updates its parcel layer daily; OpenStreetMap roads change more slowly.
 
 ```cron
-30 2 * * *  /opt/county-router/ops/refresh-cad.sh >> /var/log/county-router-cad.log 2>&1
-0 3 * * 0   /opt/county-router/ops/refresh-osm.sh >> /var/log/county-router-osm.log 2>&1
+30 2 * * *  /opt/county-router/ops/refresh-cad.sh >> /opt/county-router/logs/refresh-cad.log 2>&1
+0 3 * * 0   /opt/county-router/ops/refresh-osm.sh >> /opt/county-router/logs/refresh-osm.log 2>&1
 ```
+
+(`mkdir -p /opt/county-router/logs` first; install `cron` if the server lacks it.)
 
 - `refresh-cad.sh` downloads parcels and address points gently (one request every 5 s).
   The app switches to the new file without a restart; a failed download keeps the old one.
