@@ -496,35 +496,57 @@ function routeStops(p: Plan): Stop[] {
 }
 
 /**
- * What to send Google for a stop: the address text, so Google places it at the building
- * with its own data, unless the user set the pin by hand; then the pin is the truth.
+ * What to send a maps app for a stop: the address text, so Google or Apple places it at
+ * the building with its own data, unless the user set the pin by hand; then the pin is
+ * the truth.
  */
-function googlePlace(s: Stop): string {
+function navPlace(s: Stop): string {
   if (s.moved || !s.location) return `${s.location!.lat.toFixed(6)},${s.location!.lon.toFixed(6)}`;
   // CAD and Census return a cleaned-up form ("100 N FOURTH ST, PRINCETON, TX 75407").
   return (s.source === "cad" || s.source === "census") && s.matched ? s.matched : s.input;
 }
 
-/** Google Maps directions take an origin, a destination and at most 9 waypoints per link. */
+/**
+ * The route cut into legs of at most 11 places each (a start, 9 stops, an end), each
+ * leg starting where the previous one ended. Google Maps links take at most 9
+ * waypoints; Apple doesn't document a limit, so it gets the same parts.
+ */
+function navLegs(p: Plan): string[][] {
+  const pts = routeStops(p).map(navPlace);
+  const legs: string[][] = [];
+  for (let i = 0; i < pts.length - 1; i += 10) legs.push(pts.slice(i, i + 11));
+  return legs;
+}
+
+function googleUrl(leg: string[]): string {
+  const q = new URLSearchParams({
+    api: "1",
+    travelmode: "driving",
+    origin: leg[0],
+    destination: leg[leg.length - 1],
+  });
+  const mid = leg.slice(1, -1);
+  if (mid.length) q.set("waypoints", mid.join("|"));
+  return `https://www.google.com/maps/dir/?${q}`;
+}
+
+/** Apple Maps unified URL: opens the Maps app on iPhone, iPad and Mac (iOS 18.4+). */
+function appleUrl(leg: string[]): string {
+  // Spaces as %20 rather than URLSearchParams' "+", which Apple doesn't document.
+  const param = (k: string, v: string) => `${k}=${encodeURIComponent(v)}`;
+  const parts = [param("source", leg[0]), param("destination", leg[leg.length - 1]), "mode=driving"];
+  for (const w of leg.slice(1, -1)) parts.push(param("waypoint", w));
+  return `https://maps.apple.com/directions?${parts.join("&")}`;
+}
+
 function renderExports() {
   if (!plan) return;
-  const pts = routeStops(plan).map(googlePlace);
-  const links: string[] = [];
-  for (let i = 0; i < pts.length - 1; i += 10) {
-    const chunk = pts.slice(i, i + 11);
-    const q = new URLSearchParams({
-      api: "1",
-      travelmode: "driving",
-      origin: chunk[0],
-      destination: chunk[chunk.length - 1],
-    });
-    const mid = chunk.slice(1, -1);
-    if (mid.length) q.set("waypoints", mid.join("|"));
-    links.push(`https://www.google.com/maps/dir/?${q}`);
-  }
-  $("gmaps-links").innerHTML = links
-    .map((u, k) => `<a class="button" href="${u}" target="_blank" rel="noopener">Google Maps${links.length > 1 ? ` (part ${k + 1} of ${links.length})` : ""}</a>`)
-    .join("");
+  const legs = navLegs(plan);
+  const buttons = (name: string, url: (leg: string[]) => string) =>
+    legs
+      .map((leg, k) => `<a class="button" href="${url(leg)}" target="_blank" rel="noopener">${name}${legs.length > 1 ? ` (part ${k + 1} of ${legs.length})` : ""}</a>`)
+      .join("");
+  $("gmaps-links").innerHTML = buttons("Google Maps", googleUrl) + buttons("Apple Maps", appleUrl);
 }
 
 $("gpx").addEventListener("click", () => {
