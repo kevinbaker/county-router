@@ -67,5 +67,5 @@ light development use only; replace it with the PMTiles build before real use.
 
 ## Deploy
 
-See [DEPLOY.md](DEPLOY.md): one server with Docker Compose, Caddy for HTTPS and a
-shared login, and cron jobs for the CAD and map refreshes.
+See [DEPLOY.md](DEPLOY.md): one server with Docker Compose, Caddy for HTTPS (no login),
+and cron jobs for the CAD and map refreshes.

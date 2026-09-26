@@ -1,11 +1,8 @@
-# HTTPS (automatic Let's Encrypt certificates) and a shared login in front of the app.
+# HTTPS (automatic Let's Encrypt certificates) in front of the app.
 # Caddy redirects plain HTTP to HTTPS on its own (308); www goes to the bare domain.
 
 {$DOMAIN} {
 	encode zstd gzip
-	basic_auth {
-		{$AUTH_USER} {$AUTH_HASH}
-	}
 	reverse_proxy api:8000
 }
 

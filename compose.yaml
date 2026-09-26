@@ -15,8 +15,6 @@ services:
       - ${HTTPS_PORT:-443}:443
     environment:
       DOMAIN: ${DOMAIN:?set DOMAIN in .env}
-      AUTH_USER: ${AUTH_USER:?set AUTH_USER in .env}
-      AUTH_HASH: ${AUTH_HASH:?set AUTH_HASH in .env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data

@@ -1,8 +1,8 @@
 # Deploying
 
 One Linux server runs everything with Docker Compose: the app (API and UI), OSRM
-routing, VROOM stop ordering, Nominatim street geocoding, and Caddy for HTTPS and a
-shared login. Only ports 80 and 443 are exposed.
+routing, VROOM stop ordering, Nominatim street geocoding, and Caddy for HTTPS.
+There is no login: the site is public. Only ports 80 and 443 are exposed.
 
 ## Server
 
@@ -28,8 +28,7 @@ sudo apt install docker.io docker-compose osmium-tool git
 git clone <repo> /opt/county-router && cd /opt/county-router
 
 cp .env.production.example .env
-docker run --rm caddy:2 caddy hash-password --plaintext 'choose-a-password'
-nano .env      # DOMAIN, AUTH_USER, AUTH_HASH (keep the single quotes)
+nano .env      # DOMAIN
 
 data/build.sh                                   # map data, about 5–10 min
 docker compose build
@@ -83,6 +82,6 @@ curl -u user:pass https://<host>/api/health   # ok: true, with the data build da
 - **Map background.** The UI loads tiles from tile.openstreetmap.org, whose usage policy
   allows light use only. Fine for a few users; replace with a self-hosted PMTiles
   basemap (`data/build.sh --tiles`) before rolling out widely.
-- **Login.** One shared login via Caddy. Per-user accounts are not built.
+- **No login.** Anyone with the link can use the site and its API. To restrict it again, add a `basic_auth` block to the Caddyfile.
 - **Privacy.** Addresses with no CAD parcel are sent to the Census Geocoder. Owner names
   are never fetched or stored.
