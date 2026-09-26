@@ -16,6 +16,8 @@ VROOM and Nominatim.
 | `compose.dev.yaml` | OSRM, VROOM and Nominatim for local development |
 | `conf/vroom/config.yml` | vroom-express settings, pointed at the `osrm` container |
 | `web/` | Prototype UI: Vite + TypeScript + MapLibre |
+| `Dockerfile`, `compose.yaml`, `Caddyfile` | Production image and stack; see [DEPLOY.md](DEPLOY.md) |
+| `ops/` | Nightly CAD and weekly map refresh scripts for the server |
 
 ## Setup
 
@@ -62,3 +64,8 @@ public ArcGIS layers as a fallback for anything newer.
 Addresses with no parcel fall back to the Census Geocoder, then Nominatim (street
 level only in most of the county). The prototype basemap uses openstreetmap.org tiles, which is fine for
 light development use only; replace it with the PMTiles build before real use.
+
+## Deploy
+
+See [DEPLOY.md](DEPLOY.md): one server with Docker Compose, Caddy for HTTPS and a
+shared login, and cron jobs for the CAD and map refreshes.

@@ -33,7 +33,6 @@ done
 
 need() { command -v "$1" >/dev/null || { echo "missing $1: $2" >&2; exit 1; }; }
 need curl "sudo apt install curl"
-need cargo "https://rustup.rs"
 need osmium "sudo apt install osmium-tool"
 need docker "sudo apt install docker.io"
 docker info >/dev/null 2>&1 || { echo "cannot reach Docker; add yourself to the docker group" >&2; exit 1; }
@@ -43,6 +42,7 @@ log() { printf '\n== %s\n' "$*"; }
 
 if [[ ! -f data/boundary/collin.geojson ]]; then
   log "County boundary"
+  need cargo "https://rustup.rs"
   curl -fsS "$COUNTY_URL" -o "$CACHE/collin-tigerweb.geojson"
   cargo run -q --release -p county-dataprep -- boundary \
     --input "$CACHE/collin-tigerweb.geojson" --buffer-km "$BUFFER_KM" \
@@ -80,6 +80,7 @@ fi
 # The clipped file drops the replication header, so read it from the source extract.
 if $cad; then
   log "CAD parcels and county address points"
+  need cargo "https://rustup.rs (or use ops/refresh-cad.sh, which runs it in Docker)"
   cargo run -q --release -p county-dataprep -- cad --out "$OUT/cad.sqlite" --delay-ms 5000
 fi
 

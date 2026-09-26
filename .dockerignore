@@ -1,0 +1,8 @@
+target
+web/node_modules
+web/dist
+data/out
+data/cache
+conf/vroom/*.log
+.env
+.git

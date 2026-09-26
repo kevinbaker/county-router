@@ -1,0 +1,8 @@
+# HTTPS (automatic certificates for a real domain) and a shared login in front of the app.
+{$SITE_ADDRESS} {
+	encode zstd gzip
+	basic_auth {
+		{$AUTH_USER} {$AUTH_HASH}
+	}
+	reverse_proxy api:8000
+}

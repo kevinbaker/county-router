@@ -1,0 +1,97 @@
+# Production stack. Only Caddy is reachable from outside; everything else talks on the
+# compose network. Settings come from .env (see .env.production.example).
+#
+#   docker compose up -d --build                  start or update
+#   ops/refresh-cad.sh                            nightly CAD parcel download
+#   ops/refresh-osm.sh                            weekly map rebuild
+name: county-router
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - ${HTTP_PORT:-80}:80
+      - ${HTTPS_PORT:-443}:443
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env}
+      AUTH_USER: ${AUTH_USER:?set AUTH_USER in .env}
+      AUTH_HASH: ${AUTH_HASH:?set AUTH_HASH in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+    mem_limit: 128m
+
+  api:
+    build: .
+    image: county-router-api
+    restart: unless-stopped
+    environment:
+      OSRM_URL: http://osrm:5000
+      VROOM_URL: http://vroom:3000
+      NOMINATIM_URL: http://nominatim:8080
+    volumes:
+      # Read-only: cad.sqlite and BUILD_INFO. A refreshed cad.sqlite is picked up live.
+      - ./data/out:/data:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/boundary", "-o", "/dev/null"]
+      interval: 30s
+      timeout: 5s
+    depends_on:
+      - osrm
+      - vroom
+      - nominatim
+    mem_limit: 384m
+
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:v26.9.0-debian
+    restart: unless-stopped
+    # The default max table size is 100 locations; routes go up to 250 stops.
+    command: osrm-routed --algorithm mld --max-table-size 1000 /data/collin.osrm
+    volumes:
+      - ./data/out:/data:ro
+    mem_limit: 768m
+
+  vroom:
+    image: ghcr.io/vroom-project/vroom-docker:v1.15.0
+    restart: unless-stopped
+    environment:
+      VROOM_ROUTER: osrm
+    volumes:
+      - ./conf/vroom:/conf
+    depends_on:
+      - osrm
+    mem_limit: 384m
+
+  nominatim:
+    image: mediagis/nominatim:5.3
+    restart: unless-stopped
+    shm_size: 1g
+    environment:
+      PBF_PATH: /import/collin.osm.pbf
+      IMPORT_WIKIPEDIA: "false"
+      IMPORT_US_POSTCODES: "false"
+      IMPORT_TIGER_ADDRESSES: "false"
+      # Data is rebuilt weekly rather than updated in place.
+      FREEZE: "true"
+    volumes:
+      # Outside /nominatim, which the image chowns recursively on start.
+      - ./data/out/collin.osm.pbf:/import/collin.osm.pbf:ro
+      - nominatim-db:/var/lib/postgresql/16/main
+    mem_limit: 1536m
+
+  # Not a service: `docker compose run --rm cad-refresh` (see ops/refresh-cad.sh).
+  cad-refresh:
+    image: county-router-api
+    profiles: [tools]
+    command: county-dataprep cad --out /data/cad.sqlite --delay-ms 5000
+    volumes:
+      - ./data/out:/data
+
+volumes:
+  caddy-data:
+  caddy-config:
+  nominatim-db:
