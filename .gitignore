@@ -4,3 +4,4 @@
 /conf/vroom/*.log
 .env
 node_modules/
+/web/dist/

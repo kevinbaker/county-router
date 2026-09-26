@@ -46,7 +46,11 @@ curl -fL --progress-bar -z "$CACHE/texas.osm.pbf" -o "$CACHE/texas.osm.pbf" "$TE
 log "Clip to Collin County + ${BUFFER_KM} km"
 osmium extract --overwrite --strategy smart \
   --polygon data/boundary/collin-buffered.geojson \
-  -o "$OUT/collin.osm.pbf" "$CACHE/texas.osm.pbf"
+  -o "$CACHE/collin-clip.osm.pbf" "$CACHE/texas.osm.pbf"
+# The clip drops the Texas state boundary (none of its ways cross the county).
+# Without it Nominatim doesn't know addresses are in TX, and every "…, TX" query fails.
+osmium tags-filter --overwrite -o "$CACHE/texas-state.osm.pbf" "$CACHE/texas.osm.pbf" r/ISO3166-2=US-TX
+osmium merge --overwrite -o "$OUT/collin.osm.pbf" "$CACHE/collin-clip.osm.pbf" "$CACHE/texas-state.osm.pbf"
 
 log "OSRM (car, MLD)"
 osrm() { docker run --rm -u "$(id -u):$(id -g)" -v "$PWD/$OUT:/data" "$OSRM_IMAGE" "$@"; }

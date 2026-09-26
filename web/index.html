@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Collin County Route Planner</title>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="panel">
+        <header>
+          <h1>Route Planner</h1>
+          <p class="sub">Collin County, TX</p>
+        </header>
+
+        <section id="step-input">
+          <label for="addresses">Stops</label>
+          <textarea
+            id="addresses"
+            rows="8"
+            spellcheck="false"
+            placeholder="One address per line, or paste a comma-separated list.&#10;1500 Parker Rd, Wylie, TX 75098"
+          ></textarea>
+          <button id="find" class="primary">Find addresses</button>
+          <p id="input-error" class="error" hidden></p>
+        </section>
+
+        <section id="step-review" hidden>
+          <div class="section-head">
+            <h2>Check stops</h2>
+            <span id="review-summary" class="muted"></span>
+          </div>
+          <p class="hint">Drag any pin to correct it. Stops marked “not found” are skipped until you place them.</p>
+          <ol id="stop-list" class="stops"></ol>
+
+          <div class="options">
+            <label>Start at
+              <select id="start"></select>
+            </label>
+            <label class="check">
+              <input type="checkbox" id="round-trip" checked /> Return to start
+            </label>
+            <label>Minutes per stop
+              <input type="number" id="dwell" value="5" min="0" max="240" step="1" />
+            </label>
+          </div>
+          <button id="solve" class="primary">Plan route</button>
+          <p id="solve-error" class="error" hidden></p>
+        </section>
+
+        <section id="step-result" hidden>
+          <div class="section-head">
+            <h2>Route</h2>
+            <button id="edit" class="link">Edit stops</button>
+          </div>
+          <div class="totals" id="totals"></div>
+          <ol id="route-list" class="route"></ol>
+          <div class="exports">
+            <div id="gmaps-links"></div>
+            <button id="gpx">Download GPX</button>
+          </div>
+        </section>
+      </aside>
+      <main id="map"></main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
