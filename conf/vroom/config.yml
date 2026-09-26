@@ -1,0 +1,22 @@
+# vroom-express settings; see github.com/VROOM-Project/vroom-express/blob/master/config.yml
+cliArgs:
+  geometry: false
+  planmode: false
+  threads: 4
+  explore: 5
+  limit: '1mb'
+  logdir: '/conf'
+  logsize: '100M'
+  maxlocations: 1000
+  maxvehicles: 200
+  override: ['c', 'g', 'l', 't', 'x']
+  path: ''
+  port: 3000
+  router: 'osrm'
+  timeout: 300000
+  baseurl: '/'
+routingServers:
+  osrm:
+    car:
+      host: 'osrm'
+      port: '5000'

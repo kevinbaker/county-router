@@ -1,0 +1,44 @@
+# Backing services for local development. The API runs natively with cargo.
+# Run data/build.sh first; Nominatim imports data/out/collin.osm.pbf on first start.
+name: county-router-dev
+
+services:
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:v26.9.0-debian
+    # The default max table size is 100 locations; routes go up to 250 stops.
+    command: osrm-routed --algorithm mld --max-table-size 1000 /data/collin.osrm
+    volumes:
+      - ./data/out:/data:ro
+    ports:
+      - 127.0.0.1:5000:5000
+
+  vroom:
+    image: ghcr.io/vroom-project/vroom-docker:v1.15.0
+    environment:
+      VROOM_ROUTER: osrm
+    volumes:
+      - ./conf/vroom:/conf
+    ports:
+      - 127.0.0.1:3000:3000
+    depends_on:
+      - osrm
+
+  nominatim:
+    image: mediagis/nominatim:5.3
+    shm_size: 1g
+    environment:
+      PBF_PATH: /import/collin.osm.pbf
+      IMPORT_WIKIPEDIA: "false"
+      IMPORT_US_POSTCODES: "false"
+      IMPORT_TIGER_ADDRESSES: "false"
+      # Data is rebuilt weekly rather than updated in place.
+      FREEZE: "true"
+    volumes:
+      # Outside /nominatim, which the image chowns recursively on start.
+      - ./data/out/collin.osm.pbf:/import/collin.osm.pbf:ro
+      - nominatim-db:/var/lib/postgresql/16/main
+    ports:
+      - 127.0.0.1:8080:8080
+
+volumes:
+  nominatim-db:

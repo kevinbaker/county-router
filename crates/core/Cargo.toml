@@ -1,0 +1,11 @@
+[package]
+name = "county-core"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+geo = "0.33.1"
+geojson = "1.0.0"
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.21"

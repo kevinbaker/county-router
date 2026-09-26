@@ -1,0 +1,6 @@
+/target
+/data/cache/
+/data/out/
+/conf/vroom/*.log
+.env
+node_modules/
