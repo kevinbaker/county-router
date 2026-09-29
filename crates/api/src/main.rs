@@ -21,7 +21,9 @@ use axum::{
 use county_core::Boundary;
 use serde::{Deserialize, Serialize};
 use tower_governor::{
-    GovernorLayer, governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor,
+    GovernorError, GovernorLayer,
+    governor::GovernorConfigBuilder,
+    key_extractor::{KeyExtractor, SmartIpKeyExtractor},
 };
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::{error, info};
@@ -125,7 +127,7 @@ async fn main() -> Result<()> {
     // to the actual client address (it ignores one sent by the client), so the key
     // can't be spoofed while the API is only reachable through Caddy.
     let limits = GovernorConfigBuilder::default()
-        .key_extractor(SmartIpKeyExtractor)
+        .key_extractor(VisitorKey)
         .per_millisecond(env_u64("RATE_LIMIT_REFILL_MS", 2000))
         .burst_size(env_u64("RATE_LIMIT_BURST", 20) as u32)
         .finish()
@@ -343,6 +345,25 @@ fn with_request_id(mut response: Response, id: &str) -> Response {
         response.headers_mut().insert("x-request-id", v);
     }
     response
+}
+
+/// Rate-limit key: the visitor's IPv4 address, or the /64 block of an IPv6 one (a
+/// single connection usually has a whole /64 to pick addresses from).
+#[derive(Clone)]
+struct VisitorKey;
+
+impl KeyExtractor for VisitorKey {
+    type Key = std::net::IpAddr;
+
+    fn extract<T>(&self, req: &axum::http::Request<T>) -> Result<Self::Key, GovernorError> {
+        Ok(match SmartIpKeyExtractor.extract(req)? {
+            std::net::IpAddr::V6(v6) => {
+                let block = u128::from(v6) & !((1u128 << 64) - 1);
+                std::net::IpAddr::V6(block.into())
+            }
+            v4 => v4,
+        })
+    }
 }
 
 fn env_u64(name: &str, default: u64) -> u64 {

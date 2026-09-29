@@ -108,6 +108,13 @@ services:
     volumes:
       - ./data/out:/data
 
+networks:
+  default:
+    # With IPv6 on the network, Docker forwards IPv6 visitors with their real address
+    # (without it, a proxy process hides them behind the network gateway), which the
+    # rate limit and the request log both rely on.
+    enable_ipv6: true
+
 volumes:
   caddy-data:
   caddy-config:
