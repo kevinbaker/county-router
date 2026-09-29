@@ -5,6 +5,10 @@ use county_core::LatLon;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use std::{sync::Arc, time::Duration};
+
+use tokio::sync::Semaphore;
+
 use crate::tour::{self, Finish};
 
 /// Stand-in drive time for pairs OSRM can't connect.
@@ -57,14 +61,26 @@ pub struct Router {
     http: reqwest::Client,
     osrm_url: String,
     vroom_url: String,
+    /// How long larger routes keep searching for a faster order.
+    search_budget: Duration,
+    /// Exact solving of 20 stops needs about 105 MB, so only a few orderings run at once.
+    ordering_slots: Arc<Semaphore>,
 }
 
 impl Router {
-    pub fn new(http: reqwest::Client, osrm_url: String, vroom_url: String) -> Self {
+    pub fn new(
+        http: reqwest::Client,
+        osrm_url: String,
+        vroom_url: String,
+        search_budget: Duration,
+        parallel_orderings: usize,
+    ) -> Self {
         Self {
             http,
             osrm_url,
             vroom_url,
+            search_budget,
+            ordering_slots: Arc::new(Semaphore::new(parallel_orderings.max(1))),
         }
     }
 
@@ -126,11 +142,24 @@ impl Router {
         };
         let m = self.matrix(&points).await?;
 
-        if n <= tour::EXACT_LIMIT {
-            return Ok((tour::exact(&m, n, finish), Vec::new()));
-        }
-        let (order, unassigned) = self.vroom(&m, n, finish, dwell_s).await?;
-        Ok((tour::polish(&m, &order, finish), unassigned))
+        let (start_order, unassigned) = if n <= tour::EXACT_LIMIT {
+            (Vec::new(), Vec::new())
+        } else {
+            self.vroom(&m, n, finish, dwell_s).await?
+        };
+        // CPU-heavy (up to a second or two): off the async workers, a few at a time.
+        let _slot = self.ordering_slots.acquire().await?;
+        let budget = self.search_budget;
+        let order = tokio::task::spawn_blocking(move || {
+            if n <= tour::EXACT_LIMIT {
+                tour::exact(&m, n, finish)
+            } else {
+                tour::search(&m, &start_order, finish, budget)
+            }
+        })
+        .await
+        .context("ordering stops")?;
+        Ok((order, unassigned))
     }
 
     /// Drive times in seconds between every pair of points. Pairs OSRM can't connect get

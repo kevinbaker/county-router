@@ -56,7 +56,8 @@ services:
       - osrm
       - vroom
       - nominatim
-    mem_limit: 384m
+    # Exact ordering of 20 stops needs about 105 MB; two can run at once.
+    mem_limit: 640m
 
   osrm:
     <<: *logging

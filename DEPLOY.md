@@ -110,6 +110,10 @@ curl -u user:pass https://<host>/api/health   # ok: true, with the data build da
 
 ## Limits and privacy
 
+- **Stop order.** Routes of up to 20 stops get the fastest possible order (exact search,
+  under a second). Larger routes start from VROOM's order and keep improving it for
+  `ROUTE_SEARCH_MS` (default 1500); at most `ROUTE_PARALLEL` (default 2) orderings run
+  at once.
 - **Rate limit.** `/api/geocode` and `/api/solve` allow a burst of 20 requests per visitor,
   refilled at one every 2 s (`RATE_LIMIT_BURST`, `RATE_LIMIT_REFILL_MS`), and at most 250
   stops per request.

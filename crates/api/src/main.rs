@@ -105,6 +105,8 @@ async fn main() -> Result<()> {
         http.clone(),
         config.osrm_url.clone(),
         config.vroom_url.clone(),
+        Duration::from_millis(env_u64("ROUTE_SEARCH_MS", 1500)),
+        env_u64("ROUTE_PARALLEL", 2) as usize,
     ));
     let state = Arc::new(AppState {
         geocoder: Geocoder::new(
