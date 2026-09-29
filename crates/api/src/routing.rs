@@ -10,7 +10,7 @@ use crate::tour::{self, Finish};
 /// Stand-in drive time for pairs OSRM can't connect.
 const UNREACHABLE_S: f64 = 1.0e7;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct SolveRequest {
     pub start: LatLon,
     pub stops: Vec<LatLon>,

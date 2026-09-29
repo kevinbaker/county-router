@@ -7,8 +7,8 @@
 //! VROOM's order is polished by moving stops and short runs of stops to better spots.
 
 /// Routes with at most this many stops are solved exactly (Held–Karp, about n² · 2ⁿ
-/// steps: half a million for 12 stops).
-pub const EXACT_LIMIT: usize = 12;
+/// steps and 2ⁿ · n table entries: 7 million steps and about 8 MB for 15 stops).
+pub const EXACT_LIMIT: usize = 15;
 
 /// Where the route must finish.
 #[derive(Debug, Clone, Copy, PartialEq)]

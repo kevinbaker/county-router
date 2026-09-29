@@ -3,6 +3,7 @@
 mod access;
 mod cad;
 mod geocode;
+mod reqlog;
 mod routing;
 mod street;
 mod tour;
@@ -12,8 +13,8 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 use anyhow::{Context, Result};
 use axum::{
     Json, Router,
-    extract::State,
-    http::StatusCode,
+    extract::{ConnectInfo, State},
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -25,10 +26,7 @@ use tower_governor::{
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::{error, info};
 
-use crate::{
-    geocode::Geocoder,
-    routing::{SolveRequest, SolveResponse},
-};
+use crate::{geocode::Geocoder, reqlog::RequestLog, routing::SolveRequest};
 
 struct Config {
     bind: String,
@@ -41,6 +39,7 @@ struct Config {
     web_dir: String,
     cad_db: String,
     tiles_path: String,
+    request_log: String,
 }
 
 impl Config {
@@ -58,6 +57,7 @@ impl Config {
             web_dir: var("WEB_DIR", "web/dist"),
             cad_db: var("CAD_DB", "data/out/cad.sqlite"),
             tiles_path: var("TILES_PATH", "data/out/region.pmtiles"),
+            request_log: var("REQUEST_LOG", ""),
         }
     }
 }
@@ -71,6 +71,7 @@ struct AppState {
     boundary_geojson: String,
     /// The routable region's outline, for drawing on the map.
     region_geojson: String,
+    requests: RequestLog,
 }
 
 #[tokio::main]
@@ -97,6 +98,7 @@ async fn main() -> Result<()> {
     let bind = config.bind.clone();
     let web_dir = config.web_dir.clone();
     let tiles_path = config.tiles_path.clone();
+    let config_request_log = config.request_log.clone();
     let router = Arc::new(routing::Router::new(
         http.clone(),
         config.osrm_url.clone(),
@@ -116,6 +118,7 @@ async fn main() -> Result<()> {
         http,
         boundary_geojson,
         region_geojson,
+        requests: RequestLog::new(&config_request_log),
     });
 
     // Per-visitor limit on the endpoints that do real work. Caddy sets X-Forwarded-For
@@ -271,21 +274,75 @@ fn too_many(n: usize) -> Response {
     (StatusCode::PAYLOAD_TOO_LARGE, body).into_response()
 }
 
-async fn geocode(State(state): State<Arc<AppState>>, Json(req): Json<GeocodeRequest>) -> Response {
-    if req.addresses.len() > MAX_STOPS {
-        return too_many(req.addresses.len());
-    }
-    Json(state.geocoder.geocode_all(&req.addresses).await).into_response()
+async fn geocode(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(req): Json<GeocodeRequest>,
+) -> Response {
+    let entry = state.requests.start(&headers, peer);
+    let request = serde_json::json!({ "addresses": req.addresses });
+    let (status, logged, response) = if req.addresses.len() > MAX_STOPS {
+        let r = too_many(req.addresses.len());
+        (r.status(), serde_json::json!("too many stops"), r)
+    } else {
+        let results = state.geocoder.geocode_all(&req.addresses).await;
+        let value = serde_json::to_value(&results).unwrap_or_default();
+        (
+            StatusCode::OK,
+            reqlog::without_parcel(value),
+            Json(results).into_response(),
+        )
+    };
+    state
+        .requests
+        .write(&entry, "geocode", status.as_u16(), request, logged)
+        .await;
+    with_request_id(response, &entry.id)
 }
 
-async fn solve(State(state): State<Arc<AppState>>, Json(req): Json<SolveRequest>) -> Response {
-    if req.stops.len() > MAX_STOPS {
-        return too_many(req.stops.len());
+async fn solve(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(req): Json<SolveRequest>,
+) -> Response {
+    let entry = state.requests.start(&headers, peer);
+    let request = serde_json::to_value(&req).unwrap_or_default();
+    let (status, logged, response) = if req.stops.len() > MAX_STOPS {
+        let r = too_many(req.stops.len());
+        (r.status(), serde_json::json!("too many stops"), r)
+    } else {
+        match state.router.solve(&req).await {
+            Ok(route) => {
+                let mut value = serde_json::to_value(&route).unwrap_or_default();
+                // Shown on the route page, so a problem report can name the request.
+                value["request_id"] = serde_json::json!(entry.id);
+                (
+                    StatusCode::OK,
+                    reqlog::without_geometry(value.clone()),
+                    Json(value).into_response(),
+                )
+            }
+            Err(err) => {
+                let message = format!("{err:#}");
+                let r = ApiError(err).into_response();
+                (r.status(), serde_json::json!({ "error": message }), r)
+            }
+        }
+    };
+    state
+        .requests
+        .write(&entry, "solve", status.as_u16(), request, logged)
+        .await;
+    with_request_id(response, &entry.id)
+}
+
+fn with_request_id(mut response: Response, id: &str) -> Response {
+    if let Ok(v) = HeaderValue::from_str(id) {
+        response.headers_mut().insert("x-request-id", v);
     }
-    match state.router.solve(&req).await {
-        Ok(route) => Json::<SolveResponse>(route).into_response(),
-        Err(err) => ApiError(err).into_response(),
-    }
+    response
 }
 
 fn env_u64(name: &str, default: u64) -> u64 {

@@ -78,7 +78,13 @@ to check URLs from a monitoring service such as healthchecks.io. Each job pings 
 when it succeeds and `<URL>/fail` when it fails, so a missed or failed run raises an
 alert. An external uptime monitor on `https://<domain>/api/health` covers the rest.
 
-Logs are in `logs/`. Nothing needs backing up: all data is rebuilt from public sources,
+Logs are in `logs/`, including `requests.log`: one JSON line per lookup or route with
+the time, a request ID, the visitor's address, what was asked and what was answered.
+The route page and print sheet show the request ID ("Route ref"), so a problem report
+can name the exact request: `grep <id> logs/requests.log | jq`. The app runs as the
+server user (`APP_UID`/`APP_GID` in `.env`, default 1000) so it can write there.
+
+Nothing needs backing up: all data is rebuilt from public sources,
 and `.env` holds only the domain.
 
 ## Behind Cloudflare

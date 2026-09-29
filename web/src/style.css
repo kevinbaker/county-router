@@ -168,6 +168,7 @@ li.moved .num { background: #ede9fe; color: var(--moved); }
 .totals span { color: var(--muted); font-size: 12px; }
 
 .exports { display: flex; flex-wrap: wrap; gap: 8px; }
+.route-ref { margin: 4px 0 0; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 #gmaps-links { display: contents; }
 
 /* Map pins */

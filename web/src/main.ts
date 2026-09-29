@@ -43,6 +43,8 @@ type SolveResponse = {
   total_s: number;
   unassigned: number[];
   geometry: GeoJSON.LineString;
+  /** Names this request in the server's log; shown so problems can be reported. */
+  request_id?: string;
 };
 
 /** One row of the route: a stop in visit order, with the drive that reaches it. */
@@ -427,6 +429,7 @@ function renderPlan() {
   (map.getSource("route") as GeoJSONSource).setData({ type: "Feature", properties: {}, geometry: result.geometry });
   fitToCoords(result.geometry.coordinates);
   renderExports();
+  $("route-ref").textContent = result.request_id ? `Route ref ${result.request_id}` : "";
 }
 
 /** Start, each stop in order, then the return or the chosen end, with leg times and
@@ -656,7 +659,7 @@ function renderPrintSheet(p: Plan, image: string) {
     .join("");
   $("print-sheet").innerHTML = `
     <h1>Route: ${p.ordered.length + 1 + (p.end ? 1 : 0)} stops</h1>
-    <div class="meta">Collin County · printed ${esc(date)}</div>
+    <div class="meta">Collin County · printed ${esc(date)}${r.request_id ? ` · route ref ${esc(r.request_id)}` : ""}</div>
     <div class="totals-line">${miles(r.total_distance_m)} miles · ${hm(r.total_drive_s)} driving · ${hm(r.total_s)} with ${p.dwellMin} min per stop${p.finish === "start" ? " · returns to start" : p.end ? " · ends at a chosen stop" : " · ends at the last stop"}</div>
     <img src="${image}" alt="Route map" />
     <table>

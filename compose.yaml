@@ -37,13 +37,17 @@ services:
     build: .
     image: county-router-api
     restart: unless-stopped
+    # Run as the server user so the request log in ./logs is theirs (and rotated).
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
     environment:
       OSRM_URL: http://osrm:5000
       VROOM_URL: http://vroom:3000
       NOMINATIM_URL: http://nominatim:8080
+      REQUEST_LOG: /logs/requests.log
     volumes:
       # Read-only: cad.sqlite and BUILD_INFO. A refreshed cad.sqlite is picked up live.
       - ./data/out:/data:ro
+      - ./logs:/logs
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/boundary", "-o", "/dev/null"]
       interval: 30s
