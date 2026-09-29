@@ -5,6 +5,11 @@ use county_core::LatLon;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::tour::{self, Finish};
+
+/// Stand-in drive time for pairs OSRM can't connect.
+const UNREACHABLE_S: f64 = 1.0e7;
+
 #[derive(Debug, Deserialize)]
 pub struct SolveRequest {
     pub start: LatLon,
@@ -104,20 +109,89 @@ impl Router {
         }
     }
 
-    /// Asks VROOM for the fastest stop order. VROOM gets travel times from OSRM itself.
+    /// The fastest stop order. All choices use one OSRM drive-time matrix: small routes
+    /// are solved exactly, larger ones by VROOM and then polished (see [`tour`]).
     async fn order(&self, req: &SolveRequest, dwell_s: u64) -> Result<(Vec<usize>, Vec<usize>)> {
-        let start = [req.start.lon, req.start.lat];
-        let mut vehicle = json!({ "id": 0, "profile": "car", "start": start });
-        if let Some(end) = self.finish(req) {
-            vehicle["end"] = json!([end.lon, end.lat]);
+        let n = req.stops.len();
+        // Matrix points: the start, the stops, then a chosen end that isn't the start.
+        let mut points = vec![req.start];
+        points.extend(&req.stops);
+        let finish = match (req.round_trip, req.end) {
+            (true, _) => Finish::At(0),
+            (false, Some(end)) => {
+                points.push(end);
+                Finish::At(n + 1)
+            }
+            (false, None) => Finish::Open,
+        };
+        let m = self.matrix(&points).await?;
+
+        if n <= tour::EXACT_LIMIT {
+            return Ok((tour::exact(&m, n, finish), Vec::new()));
         }
-        let jobs: Vec<_> = req
-            .stops
+        let (order, unassigned) = self.vroom(&m, n, finish, dwell_s).await?;
+        Ok((tour::polish(&m, &order, finish), unassigned))
+    }
+
+    /// Drive times in seconds between every pair of points. Pairs OSRM can't connect get
+    /// a prohibitive time, so they are never chosen when anything else works.
+    async fn matrix(&self, points: &[LatLon]) -> Result<Vec<Vec<f64>>> {
+        let coords: Vec<String> = points
             .iter()
-            .enumerate()
-            .map(|(i, s)| json!({ "id": i, "location": [s.lon, s.lat], "service": dwell_s }))
+            .map(|p| format!("{:.6},{:.6}", p.lon, p.lat))
             .collect();
-        let body = json!({ "vehicles": [vehicle], "jobs": jobs });
+        let url = format!(
+            "{}/table/v1/driving/{}?annotations=duration",
+            self.osrm_url,
+            coords.join(";")
+        );
+        let resp: OsrmTableResponse = self
+            .http
+            .get(url)
+            .send()
+            .await
+            .context("calling OSRM table")?
+            .json()
+            .await
+            .context("reading OSRM table")?;
+        if resp.code != "Ok" {
+            bail!("OSRM {}: {}", resp.code, resp.message.unwrap_or_default());
+        }
+        Ok(resp
+            .durations
+            .into_iter()
+            .map(|row| {
+                row.into_iter()
+                    .map(|t| t.unwrap_or(UNREACHABLE_S))
+                    .collect()
+            })
+            .collect())
+    }
+
+    /// Asks VROOM for a stop order over the given matrix.
+    async fn vroom(
+        &self,
+        m: &[Vec<f64>],
+        n: usize,
+        finish: Finish,
+        dwell_s: u64,
+    ) -> Result<(Vec<usize>, Vec<usize>)> {
+        let mut vehicle = json!({ "id": 0, "profile": "car", "start_index": 0 });
+        if let Finish::At(end) = finish {
+            vehicle["end_index"] = json!(end);
+        }
+        let jobs: Vec<_> = (0..n)
+            .map(|i| json!({ "id": i, "location_index": i + 1, "service": dwell_s }))
+            .collect();
+        let durations: Vec<Vec<u64>> = m
+            .iter()
+            .map(|row| row.iter().map(|t| t.round() as u64).collect())
+            .collect();
+        let body = json!({
+            "vehicles": [vehicle],
+            "jobs": jobs,
+            "matrices": { "car": { "durations": durations } },
+        });
 
         let resp: VroomResponse = self
             .http
@@ -287,6 +361,14 @@ struct OsrmRoute {
 struct OsrmLeg {
     distance: f64,
     duration: f64,
+}
+
+#[derive(Deserialize)]
+struct OsrmTableResponse {
+    code: String,
+    message: Option<String>,
+    #[serde(default)]
+    durations: Vec<Vec<Option<f64>>>,
 }
 
 #[derive(Deserialize)]

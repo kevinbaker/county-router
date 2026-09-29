@@ -5,6 +5,7 @@ mod cad;
 mod geocode;
 mod routing;
 mod street;
+mod tour;
 
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
