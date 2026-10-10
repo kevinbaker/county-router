@@ -189,7 +189,7 @@ impl Cad {
 
     /// Finds the parcel whose site address matches a typed address such as
     /// "1200 PARKER RD ST PAUL TX 75098" or "100 N 4th St, Princeton".
-    pub async fn by_address(&self, query: &str) -> Result<Option<Arc<Parcel>>> {
+    pub async fn by_address(&self, query: &str) -> Result<Option<AddressMatch>> {
         let Some(addr) = TypedAddress::parse(query) else {
             return Ok(None);
         };
@@ -204,15 +204,20 @@ impl Cad {
             }
             best = addr.best(self.live(&filter).await?);
         }
-        let Some(parcel) = best else {
+        let Some((parcel, other)) = best else {
             return Ok(None);
         };
+        let matched = addr.situs_with_direction(&parcel);
         let parcel = Arc::new(parcel);
         self.parcels
             .lock()
             .unwrap()
             .insert(parcel.prop_id, parcel.clone());
-        Ok(Some(parcel))
+        Ok(Some(AddressMatch {
+            parcel,
+            matched,
+            other,
+        }))
     }
 
     /// The county 911 address point for the building on this parcel, if there is one.
@@ -424,30 +429,83 @@ impl TypedAddress {
         })
     }
 
-    /// The candidate whose street matches best: full street (with direction) over core name.
-    fn best(&self, candidates: Vec<Parcel>) -> Option<Parcel> {
-        let mut best: Option<(u8, Parcel)> = None;
-        for p in candidates {
-            if let Some(score) = self.street_match(&p.street)
-                && best.as_ref().is_none_or(|(s, _)| score > *s)
-            {
-                best = Some((score, p));
-            }
-        }
-        best.map(|(_, p)| p)
+    /// The candidate whose city was typed too, then whose street matches best (full
+    /// street with direction over core name); and the site address of a different street
+    /// that matched just as well, if any ("812 N MCDONALD ST" typed as "812 McDonald St").
+    fn best(&self, candidates: Vec<Parcel>) -> Option<(Parcel, Option<String>)> {
+        let mut ranked: Vec<((bool, u8), Parcel)> = candidates
+            .into_iter()
+            .filter_map(|p| {
+                let score = self.street_match(&p.street)?;
+                Some(((self.names_city(&p.situs), score), p))
+            })
+            .collect();
+        ranked.sort_by_key(|(r, _)| std::cmp::Reverse(*r));
+        let mut ranked = ranked.into_iter();
+        let (rank, best) = ranked.next()?;
+        let other = ranked
+            .take_while(|(r, _)| *r == rank)
+            .find(|(_, p)| p.street != best.street || city(&p.situs) != city(&best.situs))
+            .map(|(_, p)| p.situs);
+        Some((best, other))
     }
 
     /// 2 when the typed address starts with the full street ("N 4TH ST"), 1 when it
-    /// starts with the street's core name ("4TH ST", "4TH"), otherwise no match.
+    /// starts with the street's core name ("4TH ST", "4TH"), otherwise no match. A typed
+    /// direction that differs from CAD's ("E MAIN" against "W MAIN ST") is no match: the
+    /// two halves of a street can be miles apart.
     fn street_match(&self, cad_street: &str) -> Option<u8> {
         let full = street::words(cad_street);
         if !full.is_empty() && self.rest.starts_with(&full) {
             return Some(2);
         }
+        if let (Some(typed), Some(cad)) = (
+            street::leading_direction(&self.rest),
+            street::leading_direction(&full),
+        ) && typed != cad
+        {
+            return None;
+        }
         let core = street::core(cad_street);
         let typed = street::strip_leading_direction(&self.rest);
         (!core.is_empty() && typed.starts_with(&core)).then_some(1)
     }
+
+    /// Whether the parcel's city appears among the typed words.
+    fn names_city(&self, situs: &str) -> bool {
+        let city = street::words(city(situs));
+        !city.is_empty() && self.rest.windows(city.len()).any(|w| w == city.as_slice())
+    }
+
+    /// The parcel's site address, with the typed direction put back when CAD's street
+    /// has none ("500 MELISSA RD" typed as "500 E Melissa Rd"), so maps apps sent the
+    /// address find the right half of the street.
+    fn situs_with_direction(&self, parcel: &Parcel) -> String {
+        match street::leading_direction(&self.rest) {
+            Some(dir) if street::leading_direction(&street::words(&parcel.street)).is_none() => {
+                let plain = format!("{} {}", parcel.number, parcel.street);
+                match parcel.situs.strip_prefix(&plain) {
+                    Some(tail) => format!("{} {dir} {}{tail}", parcel.number, parcel.street),
+                    None => parcel.situs.clone(),
+                }
+            }
+            _ => parcel.situs.clone(),
+        }
+    }
+}
+
+/// The city part of a CAD site address ("PRINCETON" in "100 N FOURTH ST, PRINCETON, TX 75407").
+fn city(situs: &str) -> &str {
+    situs.split(", ").nth(1).unwrap_or_default()
+}
+
+/// A parcel found by its typed address.
+pub struct AddressMatch {
+    pub parcel: Arc<Parcel>,
+    /// The site address to show and to send to maps apps.
+    pub matched: String,
+    /// Another site address the typed one fits just as well.
+    pub other: Option<String>,
 }
 
 #[cfg(test)]
@@ -513,5 +571,54 @@ mod tests {
             typed("200 W PRINCETON DR").street_match("PEACHTREE LN"),
             None
         );
+    }
+
+    #[test]
+    fn opposite_direction_is_not_a_match() {
+        assert_eq!(typed("500 E Main St, Allen").street_match("W MAIN ST"), None);
+        assert_eq!(typed("500 Main St, Allen").street_match("W MAIN ST"), Some(1));
+        assert_eq!(typed("500 E Main St, Allen").street_match("MAIN ST"), Some(1));
+    }
+
+    fn at(number: &str, street: &str, city: &str) -> Parcel {
+        let r = ParcelRecord {
+            situs: format!("{number} {street}, {city}, TX 75000"),
+            number: number.into(),
+            street: street.into(),
+            ..piece(1, -96.5)
+        };
+        Parcel::new(r.clone(), &[r.geometry]).unwrap()
+    }
+
+    #[test]
+    fn keeps_the_typed_direction_cad_lacks() {
+        let a = typed("500 E Melissa Rd, Melissa");
+        let (p, other) = a.best(vec![at("500", "MELISSA RD", "MELISSA")]).unwrap();
+        assert_eq!(other, None);
+        assert_eq!(a.situs_with_direction(&p), "500 E MELISSA RD, MELISSA, TX 75000");
+    }
+
+    #[test]
+    fn prefers_the_typed_city_and_reports_ties() {
+        let a = typed("812 McDonald St, McKinney");
+        let (p, other) = a
+            .best(vec![
+                at("812", "MCDONALD ST", "PLANO"),
+                at("812", "N MCDONALD ST", "MCKINNEY"),
+                at("812", "S MCDONALD ST", "MCKINNEY"),
+            ])
+            .unwrap();
+        assert_eq!(p.street, "N MCDONALD ST");
+        assert_eq!(other.as_deref(), Some("812 S MCDONALD ST, MCKINNEY, TX 75000"));
+
+        let a = typed("812 S McDonald St");
+        let (p, other) = a
+            .best(vec![
+                at("812", "N MCDONALD ST", "MCKINNEY"),
+                at("812", "S MCDONALD ST", "MCKINNEY"),
+            ])
+            .unwrap();
+        assert_eq!(p.street, "S MCDONALD ST");
+        assert_eq!(other, None);
     }
 }

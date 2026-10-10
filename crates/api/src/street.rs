@@ -58,6 +58,15 @@ pub fn strip_leading_direction(words: &[String]) -> &[String] {
     &words[start..]
 }
 
+/// The direction a street name starts with ("E" in `["E", "MAIN", "ST"]`), unless the
+/// direction is the whole name.
+pub fn leading_direction(words: &[String]) -> Option<&str> {
+    words
+        .first()
+        .filter(|w| words.len() > 1 && is_direction(w))
+        .map(String::as_str)
+}
+
 /// Whether two street names refer to the same street.
 pub fn same_street(a: &str, b: &str) -> bool {
     let (a, b) = (core(a), core(b));

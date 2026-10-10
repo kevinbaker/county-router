@@ -220,6 +220,7 @@ function status(s: Stop): { cls: string; text: string } {
   if (!s.location) return { cls: "bad", text: "Not found" };
   if (!s.in_area) return { cls: "bad", text: "Outside service area" };
   if (s.moved) return { cls: "moved", text: "Pin set by you" };
+  if (s.source === "cad" && s.note) return { cls: "warn", text: "Two matches, check address" };
   if (s.method === "building") return { cls: "ok", text: "Building" };
   if (s.method === "frontage") return { cls: "ok", text: "Lot frontage" };
   if (s.method === "lot_centre") return { cls: "warn", text: "Lot centre, check pin" };
@@ -238,9 +239,9 @@ function title(s: Stop): string {
   return s.source === "cad" && s.matched ? s.matched : s.input;
 }
 
-/** Second line: why a stop wasn't found, or the matched address for typed addresses. */
+/** Second line: why a stop wasn't found or may be the wrong one, or the matched address for typed addresses. */
 function detail(s: Stop): string {
-  if (s.source === "cad") return "";
+  if (s.source === "cad") return s.note ?? "";
   if (s.note) return s.note;
   return s.matched && !s.moved ? s.matched : "";
 }
@@ -507,14 +508,19 @@ function routeStops(p: Plan): Stop[] {
 }
 
 /**
- * What to send a maps app for a stop: the address text, so Google or Apple places it at
- * the building with its own data, unless the user set the pin by hand; then the pin is
- * the truth.
+ * What to send a maps app for a stop: for a CAD parcel or a pin set by hand, the point we
+ * routed to. CAD's address text can mislead maps apps: Google read "608 E FM 544,
+ * MURPHY" as a different stretch of FM 544, and some parcels have no house number
+ * ("RUISSEAU DR") or two ("601/605 DIGITAL DR"). Other stops send the address text, so
+ * Google or Apple can place it with its own building data.
  */
 function navPlace(s: Stop): string {
-  if (s.moved || !s.location) return `${s.location!.lat.toFixed(6)},${s.location!.lon.toFixed(6)}`;
-  // CAD and Census return a cleaned-up form ("100 N FOURTH ST, PRINCETON, TX 75407").
-  return (s.source === "cad" || s.source === "census") && s.matched ? s.matched : s.input;
+  if (s.moved || s.source === "cad") {
+    const p = routePoint(s);
+    return `${p.lat.toFixed(6)},${p.lon.toFixed(6)}`;
+  }
+  // Census returns a cleaned-up form ("100 N 4TH ST, PRINCETON, TX, 75407").
+  return s.source === "census" && s.matched ? s.matched : s.input;
 }
 
 /**

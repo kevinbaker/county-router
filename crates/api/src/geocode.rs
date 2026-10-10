@@ -148,7 +148,7 @@ impl Geocoder {
         let result = if let Some(id) = property_id(input) {
             match parcels {
                 Some(found) => match found.get(&id) {
-                    Some(p) => self.locate_parcel(input, p).await,
+                    Some(p) => self.locate_parcel(input, p, p.situs.clone(), None).await,
                     None => GeocodeResult::not_found(
                         input,
                         Some(format!("No CAD parcel with property ID {id}")),
@@ -171,7 +171,12 @@ impl Geocoder {
                 }
             };
             match parcel {
-                Some(p) => self.locate_parcel(input, &p).await,
+                Some(m) => {
+                    let note = m.other.map(|o| {
+                        format!("Also matches {o}: add the direction (N, S, E or W) or ZIP to be sure")
+                    });
+                    self.locate_parcel(input, &m.parcel, m.matched, note).await
+                }
                 None => self.street_geocode(input).await,
             }
         };
@@ -179,28 +184,36 @@ impl Geocoder {
         result
     }
 
-    async fn locate_parcel(&self, input: &str, parcel: &Parcel) -> GeocodeResult {
+    /// `note` warns that the typed address fits another parcel too; the stop is then
+    /// marked low confidence so the user checks it.
+    async fn locate_parcel(
+        &self,
+        input: &str,
+        parcel: &Parcel,
+        matched: String,
+        note: Option<String>,
+    ) -> GeocodeResult {
         let building = self.cad.building_point(parcel).await;
         let Some(spot) = access::locate(&self.router, parcel, building).await else {
             return GeocodeResult::not_found(input, Some("CAD parcel has no shape".into()));
         };
         GeocodeResult {
             input: input.to_string(),
-            confidence: if spot.method == Method::LotCentre {
+            confidence: if spot.method == Method::LotCentre || note.is_some() {
                 Confidence::Low
             } else {
                 Confidence::High
             },
             location: Some(spot.display),
             route_location: spot.route,
-            matched: Some(parcel.situs.clone()),
+            matched: Some(matched),
             source: Some("cad"),
             in_county: self.boundary.contains(spot.display),
             in_area: self.region.contains(spot.display),
             prop_id: Some(parcel.prop_id),
             method: Some(spot.method),
             parcel: Some(parcel.geojson.clone()),
-            note: None,
+            note,
         }
     }
 
