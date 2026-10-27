@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Collin County Route Planner</title>
     <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#1d4ed8" />
+    <meta name="apple-mobile-web-app-title" content="Routes" />
   </head>
   <body>
     <div class="app">
@@ -16,7 +20,10 @@
             <p class="sub">Collin County, TX</p>
           </div>
         </div>
-        <button id="start-over" class="start-over" hidden>Start over</button>
+        <div class="top-actions">
+          <button id="resume-drive" class="resume-drive" hidden>Resume drive</button>
+          <button id="start-over" class="start-over" hidden>Start over</button>
+        </div>
       </header>
       <aside class="panel">
 
@@ -67,8 +74,10 @@
           </div>
           <div class="totals" id="totals"></div>
           <ol id="route-list" class="route"></ol>
+          <button id="drive-start" class="primary drive-start">Drive it, one stop at a time</button>
+          <p class="hint">Sends each stop to Google or Apple Maps on its own, so navigation ends at that stop. Come back here to send the next one.</p>
           <div class="exports">
-            <button id="print" class="primary">Print route</button>
+            <button id="print">Print route</button>
             <div id="gmaps-links"></div>
             <button id="gpx">Download GPX</button>
           </div>
@@ -82,6 +91,35 @@
           <span>Show full route</span>
         </button>
       </main>
+    </div>
+    <div id="drive" class="drive" hidden>
+      <div class="drive-inner">
+        <header class="drive-head">
+          <button id="drive-close" class="link">‹ Planner</button>
+          <span id="drive-progress" class="muted"></span>
+          <button id="drive-end" class="drive-end">End trip</button>
+        </header>
+        <section id="drive-current" class="drive-current">
+          <span id="drive-label" class="drive-label"></span>
+          <div id="drive-name" class="drive-name"></div>
+          <span id="drive-leg" class="muted"></span>
+          <p id="drive-here" class="drive-here" hidden></p>
+          <a id="drive-go" class="button primary drive-go" target="_blank" rel="noopener">Navigate</a>
+          <div id="drive-app" class="drive-app" role="group" aria-label="Maps app">
+            <button data-app="apple">Apple Maps</button>
+            <button data-app="google">Google Maps</button>
+          </div>
+          <div class="drive-actions">
+            <button id="drive-done" class="primary">Done · next stop</button>
+            <button id="drive-skip">Skip</button>
+          </div>
+        </section>
+        <section id="drive-finished" class="drive-current" hidden>
+          <div class="drive-name">All stops done.</div>
+          <span class="muted">Tap a stop below to go back to it, or end the trip.</span>
+        </section>
+        <ol id="drive-list" class="route drive-list"></ol>
+      </div>
     </div>
     <div id="print-sheet"></div>
     <script type="module" src="/src/main.ts"></script>

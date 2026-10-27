@@ -5,6 +5,7 @@ import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { layers, namedFlavor } from "@protomaps/basemaps";
 import { Protocol } from "pmtiles";
 import "./style.css";
+import { startDrive } from "./drive";
 
 // Vite moves MapLibre's worker when bundling; point MapLibre at the bundled copy.
 maplibregl.setWorkerUrl(workerUrl);
@@ -565,6 +566,25 @@ function renderExports() {
       .join("");
   $("gmaps-links").innerHTML = buttons("Google Maps", googleUrl) + buttons("Apple Maps", appleUrl);
 }
+
+/** Drive mode gets every place after the start, each sent to the maps app on its own. */
+$("drive-start").addEventListener("click", () => {
+  if (!plan) return;
+  startDrive(
+    visits.slice(1).map((v) => {
+      const p = routePoint(v.stop);
+      return {
+        label: v.label,
+        name: v.name,
+        place: navPlace(v.stop),
+        lat: p.lat,
+        lon: p.lon,
+        leg_m: v.leg?.distance_m ?? null,
+        leg_s: v.leg?.duration_s ?? null,
+      };
+    }),
+  );
+});
 
 $("gpx").addEventListener("click", () => {
   if (!plan) return;

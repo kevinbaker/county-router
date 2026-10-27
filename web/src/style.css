@@ -196,6 +196,39 @@ li.moved .num { background: #ede9fe; color: var(--moved); }
   box-shadow: 0 0 0 5px rgb(29 78 216 / 0.35), 0 1px 6px rgb(0 0 0 / 0.4);
 }
 
+/* Drive mode: a full-screen page over the planner, sized for a phone in a car mount. */
+.top-actions { display: flex; gap: 8px; }
+.resume-drive { padding: 6px 12px; font-size: 13px; font-weight: 600; background: var(--accent); border-color: var(--accent); color: #fff; }
+.drive-start { padding: 12px 14px; }
+body.driving { overflow: hidden; }
+.drive { position: fixed; inset: 0; z-index: 20; background: var(--bg); overflow-y: auto; }
+.drive-inner {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: max(12px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.drive-head { display: flex; justify-content: space-between; align-items: center; }
+.drive-head .link { font-size: 15px; }
+.drive-end { padding: 6px 12px; font-size: 13px; }
+.drive-end.confirm { background: var(--bad); border-color: var(--bad); color: #fff; }
+.drive-current { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px; gap: 10px; }
+.drive-label { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); }
+.drive-name { font-size: 22px; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+.drive-here { margin: 0; padding: 8px 10px; border-radius: 8px; background: #f1f5f9; color: #475569; font-weight: 500; }
+.drive-here.arrived { background: #dcfce7; color: var(--ok); }
+a.drive-go { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; font-size: 18px; padding: 16px; border-radius: 12px; }
+.drive-app { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.drive-app button { border: 0; border-radius: 0; padding: 8px; font-size: 13px; color: var(--muted); }
+.drive-app button.on { background: #eef2ff; color: var(--accent); font-weight: 600; }
+.drive-actions { display: grid; grid-template-columns: 2fr 1fr; gap: 8px; }
+.drive-actions button { padding: 14px; font-size: 16px; }
+.drive-list li.current { background: #eef2ff; box-shadow: inset 3px 0 0 var(--accent); }
+.drive-list li.done .addr, .drive-list li.skipped .addr { color: var(--muted); text-decoration: line-through; }
+.drive-list li.done .num { background: #dcfce7; color: var(--ok); }
+
 /* Printable route sheet: built on demand, shown only when printing. */
 #print-sheet { display: none; }
 
